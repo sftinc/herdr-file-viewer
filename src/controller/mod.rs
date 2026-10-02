@@ -1554,7 +1554,8 @@ impl Controller {
     /// The pending bit stays set, and `poll` retries every tick (a lost mouse release therefore
     /// holds reflows until the next press resets the drag). Keeps scroll,
     /// committed search and view overrides (the `poll` reflow path), re-deriving the view mode
-    /// from the new changed-set. Returns whether it was sent.
+    /// from the new changed-set. If the selection is no longer the rendered file, a full render
+    /// is sent instead. Returns whether it was sent.
     fn try_bg_reflow(&mut self) -> bool {
         if !self.bg_reflow_pending
             || self.outstanding_render.is_some()
@@ -1568,6 +1569,13 @@ impl Controller {
         let Some(node) = self.tree.selected() else {
             return false;
         };
+        // The selection moved off the rendered file (it was deleted, and a draw re-anchored to
+        // the neighbour) after this reflow was owed: the old scroll and search mean nothing on
+        // another file, so render it fresh. Line select is already known to be closed here.
+        if self.rendered_path.as_ref() != Some(&node.path) {
+            self.dispatch_render();
+            return true;
+        }
         let (mode, directory_diff) = if self.status_mode && self.is_git_repo {
             (ViewMode::Diff, node.kind == NodeKind::Dir)
         } else if node.kind == NodeKind::File {

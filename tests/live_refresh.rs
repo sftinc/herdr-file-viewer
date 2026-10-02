@@ -807,3 +807,95 @@ fn cancelling_the_editor_while_a_reflow_is_in_flight_does_not_restore_old_lines(
     release.send(()).unwrap();
     assert!(!restored, "the reflow in flight dooms the old line numbers");
 }
+
+/// Scroll the preview down with a committed search, so a test can see whether a later render
+/// kept or reset them.
+fn scroll_with_search(ctrl: &mut Controller) {
+    ctrl.set_content_viewport(40, 10);
+    ctrl.handle(Intent::OpenSearch);
+    for c in "line30".chars() {
+        ctrl.handle_prompt_key(key(KeyCode::Char(c)));
+    }
+    ctrl.handle_prompt_key(key(KeyCode::Enter));
+    let state = ctrl.view_state();
+    assert!(
+        state.active.search.is_some(),
+        "precondition: a committed search"
+    );
+    assert!(
+        state.active.scroll > 0,
+        "precondition: scrolled to the match"
+    );
+}
+
+/// Review I1: the selection is deleted while the watcher's status job is in flight, and the pane
+/// regains focus. The focus refresh drops the job and owes its reflow, but the selection has
+/// already moved to the neighbour, so the owed reflow must become a fresh render of the neighbour,
+/// not a reflow that carries the deleted file's scroll and search onto it.
+#[test]
+fn an_owed_reflow_after_the_selection_was_deleted_renders_the_neighbour_fresh() {
+    let dir = TempDir::new();
+    std::fs::write(dir.path().join("a.rs"), "a\n").unwrap();
+    std::fs::write(dir.path().join("b.rs"), "b\n").unwrap();
+    let mut r = rig(dir.path(), true);
+    r.ctrl.handle(Intent::NavDown);
+    await_text(&mut r.ctrl, "b.rs");
+    scroll_with_search(&mut r.ctrl);
+
+    std::fs::remove_file(dir.path().join("b.rs")).unwrap();
+    let (started, release) = arm(&r.git.gate);
+    let path = r.root.join("b.rs");
+    assert!(fire(&mut r, WatchEvent::Paths(vec![path])));
+    started.recv().unwrap(); // the watcher's status job is held
+    assert_eq!(
+        selected(&r.ctrl),
+        "a.rs",
+        "a draw re-anchored to the neighbour"
+    );
+
+    let next = next_render(&r);
+    r.ctrl.handle_focus_gained();
+    release.send(()).unwrap();
+    await_text(&mut r.ctrl, &format!("a.rs SyntaxContent {next}"));
+    let state = r.ctrl.view_state();
+    assert_eq!(state.active.scroll, 0, "the neighbour starts at the top");
+    assert!(
+        state.active.search.is_none(),
+        "the deleted file's search is not carried over"
+    );
+}
+
+/// Review I1, second route: a reflow is held by line select, the selection is deleted, and line
+/// select closes before the next watcher status lands. The held reflow must not reflow the
+/// neighbour with the deleted file's scroll and search.
+#[test]
+fn a_held_reflow_after_the_selection_was_deleted_renders_the_neighbour_fresh() {
+    let dir = TempDir::new();
+    std::fs::write(dir.path().join("a.rs"), "a\n").unwrap();
+    std::fs::write(dir.path().join("b.rs"), "b\n").unwrap();
+    let mut r = rig(dir.path(), true);
+    r.ctrl.handle(Intent::NavDown);
+    await_text(&mut r.ctrl, "b.rs");
+    scroll_with_search(&mut r.ctrl);
+    r.ctrl.enter_line_select_at_top();
+    assert!(r.ctrl.line_select_active());
+    let seq = r.ctrl.render_seq();
+    change(&mut r, "b.rs");
+    assert_eq!(r.ctrl.render_seq(), seq, "precondition: the reflow is held");
+
+    std::fs::remove_file(dir.path().join("b.rs")).unwrap();
+    assert_eq!(
+        selected(&r.ctrl),
+        "a.rs",
+        "a draw re-anchored to the neighbour"
+    );
+    r.ctrl.exit_line_select();
+    let next = next_render(&r);
+    await_text(&mut r.ctrl, &format!("a.rs SyntaxContent {next}"));
+    let state = r.ctrl.view_state();
+    assert_eq!(state.active.scroll, 0, "the neighbour starts at the top");
+    assert!(
+        state.active.search.is_none(),
+        "the deleted file's search is not carried over"
+    );
+}
