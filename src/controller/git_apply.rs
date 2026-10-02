@@ -12,12 +12,14 @@ impl Controller {
     /// a directory outside a repo gains and loses files just the same. Returning early here left a
     /// compacted non-git tree stale until the user hit `r`. In **changed-only** mode the refresh
     /// re-filters the visible list, which can move the cursor to a different file; if the
-    /// selection actually changed, re-render so the content pane matches the highlighted row —
-    /// otherwise the content (and its scroll) is left untouched, the common case.
+    /// selection is no longer the file the preview was rendered for, re-render so the content pane
+    /// matches the highlighted row — otherwise the content (and its scroll) is left untouched, the
+    /// common case. Compared against the rendered file, not the selection before the refresh: a
+    /// draw re-anchors the cursor to the neighbour as soon as the selected file is deleted, so the
+    /// selection can have moved before this runs.
     pub fn handle_focus_gained(&mut self) -> Effects {
-        let before = self.tree.selected().map(|n| n.path);
         self.refresh_git_state();
-        if self.tree.selected().map(|n| n.path) != before {
+        if self.tree.selected().map(|n| n.path) != self.rendered_path {
             self.dispatch_render();
         }
         Effects::redraw()
