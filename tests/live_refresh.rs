@@ -778,10 +778,32 @@ fn a_full_render_settles_an_owed_reflow() {
     let seq = r.ctrl.render_seq(); // the full render is dispatched
     await_text(&mut r.ctrl, &full);
     r.ctrl.poll();
+    release.send(()).unwrap(); // before the assert, so a failure leaves no blocked thread
     assert_eq!(
         r.ctrl.render_seq(),
         seq,
         "no stale reflow once the full render lands"
     );
+}
+
+#[test]
+fn cancelling_the_editor_while_a_reflow_is_in_flight_does_not_restore_old_lines() {
+    let dir = TempDir::new();
+    std::fs::write(dir.path().join("a.rs"), "a\n").unwrap();
+    let mut r = rig(dir.path(), true);
+    await_text(&mut r.ctrl, "a.rs");
+    r.ctrl.set_content_viewport(40, 10);
+    r.ctrl.enter_line_select_at_top();
+    r.ctrl.handle_line_select_key(key(KeyCode::Char('a')));
+    assert!(r.ctrl.annotation_editor().is_some());
+
+    let (started, release) = arm(&r.body.gate);
+    r.git.set("a.rs", Status::Modified);
+    change(&mut r, "a.rs"); // the reflow is sent and held in the renderer
+    started.recv().unwrap();
+
+    r.ctrl.handle_annotation_editor_key(key(KeyCode::Esc));
+    let restored = r.ctrl.line_select_active();
     release.send(()).unwrap();
+    assert!(!restored, "the reflow in flight dooms the old line numbers");
 }
