@@ -1537,16 +1537,30 @@ impl Controller {
             self.bg_reflow_pending = true;
             self.try_bg_reflow();
         } else {
+            // The previewed file is gone: whatever the user was doing with it ends here. Closing
+            // line select also drops its pending entry; `dispatch_render` drops a pending go-to-line.
+            if self.line_select_active() {
+                self.exit_line_select();
+            }
+            if self.drag == Some(Drag::ContentSelect) {
+                self.drag = None;
+            }
             self.dispatch_render();
         }
     }
 
     /// Send the wanted background reflow unless something is in the way: a render outstanding
-    /// (sending would supersede it and cancel the user's `L` or go-to-line). Keeps scroll,
+    /// (sending would supersede it and cancel the user's `L` or go-to-line), or line select is
+    /// open, or a mouse drag is selecting content (the text under the selection must not move).
+    /// The pending bit stays set, and `poll` retries every tick. Keeps scroll,
     /// committed search and view overrides (the `poll` reflow path), re-deriving the view mode
     /// from the new changed-set. Returns whether it was sent.
     fn try_bg_reflow(&mut self) -> bool {
-        if !self.bg_reflow_pending || self.outstanding_render.is_some() {
+        if !self.bg_reflow_pending
+            || self.outstanding_render.is_some()
+            || self.line_select_active()
+            || self.drag == Some(Drag::ContentSelect)
+        {
             return false;
         }
         self.bg_reflow_pending = false;
@@ -3676,6 +3690,8 @@ impl Controller {
     fn dispatch_render(&mut self) {
         self.latest_seq += 1;
         let seq = self.latest_seq;
+        // A full render settles any owed background reflow: no stale one fires after it lands.
+        self.bg_reflow_pending = false;
         // A fresh render means new content — start it at the top-left, never inheriting the
         // previous file's scroll offsets.
         self.active_interaction.vertical_scroll = 0;
@@ -3828,6 +3844,12 @@ impl Controller {
                     ))
                 };
                 self.active_display = display;
+                // The active document was replaced, even if for the same file: an open add-
+                // annotation editor must not restore a line select whose numbers pointed into the
+                // old document.
+                if let Modal::AnnotationEditor(editor) = &mut self.modal {
+                    editor.forget_line_select();
+                }
                 // Covers the placeholder→land window: a selection dragged over "Rendering…" after
                 // dispatch_render's clear must not carry its stale coordinates onto the new body.
                 // (Also dropped on a reflow: an ambient selection's line/col coords are against the

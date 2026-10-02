@@ -46,6 +46,17 @@ pub struct AnnotationEditorState {
 }
 
 impl AnnotationEditorState {
+    /// Drop the line-select snapshot cancel would restore: its line numbers belong to a document
+    /// that has just been replaced.
+    pub(super) fn forget_line_select(&mut self) {
+        if let AnnotationEditorMode::Add {
+            restore_line_select,
+        } = &mut self.mode
+        {
+            *restore_line_select = None;
+        }
+    }
+
     fn add(target: AnnotationTarget, restore_line_select: Option<LineSelectState>) -> Self {
         Self {
             target,
