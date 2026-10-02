@@ -150,6 +150,15 @@ impl Debounce {
 /// controller drains every tick.
 pub struct NotifyWatch;
 
+/// Whether an event can have changed what the viewer shows. inotify also reports OPEN and
+/// CLOSE_NOWRITE, so the viewer's own reads (`git status`, renderers) would otherwise come back as
+/// events and each refresh would trigger the next. A finished write (`Close(Write)`) is a real change.
+fn changes_content(kind: &notify::EventKind) -> bool {
+    use notify::EventKind::Access;
+    use notify::event::{AccessKind, AccessMode};
+    !matches!(kind, Access(k) if !matches!(k, AccessKind::Close(AccessMode::Write)))
+}
+
 impl WatchService for NotifyWatch {
     fn watch(&self, paths: &[PathBuf]) -> Option<WatchHandle> {
         use notify::Watcher;
@@ -157,6 +166,7 @@ impl WatchService for NotifyWatch {
         let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
             let event = match res {
                 Ok(ev) if ev.need_rescan() => WatchEvent::Rescan,
+                Ok(ev) if !changes_content(&ev.kind) => return,
                 Ok(ev) => WatchEvent::Paths(ev.paths),
                 // A backend error mid-session (say, a folder created past the watch limit) is not
                 // fatal: keep forwarding what still arrives.
@@ -172,5 +182,31 @@ impl WatchService for NotifyWatch {
             rx,
             guard: Box::new(watcher),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::changes_content;
+    use notify::EventKind::{Access, Create, Modify, Remove};
+    use notify::event::{AccessKind, AccessMode, CreateKind, DataChange, ModifyKind, RemoveKind};
+
+    #[test]
+    fn reads_are_dropped_and_real_changes_kept() {
+        for dropped in [
+            Access(AccessKind::Open(AccessMode::Any)),
+            Access(AccessKind::Read),
+            Access(AccessKind::Close(AccessMode::Read)),
+        ] {
+            assert!(!changes_content(&dropped), "{dropped:?}");
+        }
+        for kept in [
+            Access(AccessKind::Close(AccessMode::Write)),
+            Create(CreateKind::Any),
+            Modify(ModifyKind::Data(DataChange::Any)),
+            Remove(RemoveKind::Any),
+        ] {
+            assert!(changes_content(&kept), "{kept:?}");
+        }
     }
 }
