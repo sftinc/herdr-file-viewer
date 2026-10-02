@@ -7,6 +7,9 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+- The selected file stays selected when a file appears or disappears above it. A focus refresh or `r` used to move the highlight to a different file.
+
 ## [1.17.0] - 2026-09-16
 
 ### Added

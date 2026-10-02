@@ -1883,7 +1883,7 @@ impl Controller {
         // `tree.selected()` (which re-runs the gitignore-aware filesystem walk) a second time
         // for the wrap decision — `visible_nodes()` is the hot, per-frame path.
         let nodes = self.tree.visible_nodes();
-        let selected = self.tree.cursor();
+        let selected = self.tree.cursor_in(&nodes);
         // Active wrapping responds immediately to the live `w` preference while a width-sensitive
         // reflow is pending; the settled document captures the same value when that render lands.
         let wrap = self.wrap_for(nodes.get(selected));

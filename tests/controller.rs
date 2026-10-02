@@ -3631,6 +3631,33 @@ fn focus_gained_re_queries_git_but_preserves_content_scroll() {
 }
 
 #[test]
+fn focus_gained_keeps_the_selected_file_when_one_appears_above_it() {
+    let dir = TempDir::new();
+    std::fs::write(dir.path().join("b.txt"), "b").unwrap();
+    std::fs::write(dir.path().join("c.txt"), "c").unwrap();
+    let (mut ctrl, _, _) = controller(dir.path(), false, StubGit::default(), false);
+    ctrl.handle(Intent::NavDown);
+    assert_eq!(
+        ctrl.tree().selected().unwrap().path.file_name().unwrap(),
+        "c.txt"
+    );
+    let seq = ctrl.render_seq();
+
+    std::fs::write(dir.path().join("a.txt"), "a").unwrap();
+    ctrl.handle_focus_gained();
+    assert_eq!(
+        ctrl.tree().selected().unwrap().path.file_name().unwrap(),
+        "c.txt",
+        "a file appearing above the cursor must not move the selection"
+    );
+    assert_eq!(
+        ctrl.render_seq(),
+        seq,
+        "the selection did not change, so nothing re-renders"
+    );
+}
+
+#[test]
 fn focus_gained_without_a_repo_queries_no_git_but_still_re_reads_the_tree() {
     // No repo → no git query (AC-26). It is NOT inert beyond that, though: a directory outside a
     // repo gains and loses files like any other, and focus-gain is the moment the viewer re-reads
