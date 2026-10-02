@@ -6,15 +6,17 @@
 mod common;
 
 use common::TempDir;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use herdr_file_viewer::controller::{
     Components, ContentProvider, Controller, EditorHandoff, EditorOutcome, GitService,
     RenderResult, RootProviders,
 };
 use herdr_file_viewer::git::{Baseline, Status};
 use herdr_file_viewer::intent::Intent;
+use herdr_file_viewer::presenter::PaneGeometry;
 use herdr_file_viewer::view_policy::ViewMode;
 use herdr_file_viewer::watch::{WatchEvent, WatchHandle, WatchService};
+use ratatui::layout::Rect;
 use ratatui::text::Text;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -341,6 +343,14 @@ fn a_file_appearing_above_the_selection_keeps_it() {
     std::fs::write(dir.path().join("a.rs"), "a\n").unwrap();
     change(&mut r, "a.rs");
     assert_eq!(selected(&r.ctrl), "c.rs");
+    assert!(
+        r.ctrl
+            .tree()
+            .visible_nodes()
+            .iter()
+            .any(|n| n.path.file_name().is_some_and(|f| f == "a.rs")),
+        "the new file is listed"
+    );
     await_text(&mut r.ctrl, &format!("c.rs SyntaxContent {reflow}")); // c.rs reflowed in place
 }
 
@@ -593,6 +603,14 @@ fn outside_a_repo_a_change_redraws_without_a_status_job() {
         "redraw: the tree listing changed"
     );
     assert!(!r.ctrl.watch_refresh_in_flight(), "no git, no status job");
+    assert!(
+        r.ctrl
+            .tree()
+            .visible_nodes()
+            .iter()
+            .any(|n| n.path.file_name().is_some_and(|f| f == "b.rs")),
+        "the new file is listed"
+    );
 }
 
 #[test]
@@ -626,4 +644,144 @@ fn a_watcher_that_stops_falls_back_silently() {
     *r.watch.tx.lock().unwrap() = None; // drops the sender: the channel disconnects
     assert!(!r.ctrl.tick_watch(Instant::now()));
     assert!(!r.ctrl.watching());
+}
+
+fn mouse(kind: MouseEventKind, col: u16, row: u16) -> MouseEvent {
+    MouseEvent {
+        kind,
+        column: col,
+        row,
+        modifiers: KeyModifiers::NONE,
+    }
+}
+
+/// Content interior starts at screen row 1, column 41 (as `tests/lineselect.rs`).
+fn content_geometry() -> PaneGeometry {
+    PaneGeometry {
+        content_inner: Some(Rect {
+            x: 41,
+            y: 1,
+            width: 58,
+            height: 20,
+        }),
+        divider_x: Some(40),
+        ..PaneGeometry::default()
+    }
+}
+
+#[test]
+fn a_reflow_waits_while_line_select_is_open() {
+    let dir = TempDir::new();
+    std::fs::write(dir.path().join("a.rs"), "a\n").unwrap();
+    let mut r = rig(dir.path(), true);
+    await_text(&mut r.ctrl, "a.rs");
+    r.ctrl.set_content_viewport(40, 10);
+    r.ctrl.enter_line_select_at_top();
+    assert!(r.ctrl.line_select_active());
+    let seq = r.ctrl.render_seq();
+
+    r.git.set("a.rs", Status::Modified);
+    change(&mut r, "a.rs");
+    assert_eq!(
+        r.ctrl.render_seq(),
+        seq,
+        "held: the text under the selection must not move"
+    );
+
+    r.ctrl.exit_line_select();
+    r.ctrl.poll();
+    assert_eq!(r.ctrl.render_seq(), seq + 1, "sent once line select closes");
+}
+
+#[test]
+fn a_reflow_waits_during_a_content_drag() {
+    let dir = TempDir::new();
+    std::fs::write(dir.path().join("a.rs"), "a\n").unwrap();
+    let mut r = rig(dir.path(), true);
+    await_text(&mut r.ctrl, "a.rs");
+    r.ctrl.set_content_viewport(80, 20);
+    r.ctrl.set_pane_geometry(content_geometry());
+    r.ctrl
+        .handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 41, 1));
+    r.ctrl
+        .handle_mouse(mouse(MouseEventKind::Drag(MouseButton::Left), 44, 2));
+    let seq = r.ctrl.render_seq();
+
+    r.git.set("a.rs", Status::Modified);
+    change(&mut r, "a.rs");
+    assert_eq!(
+        r.ctrl.render_seq(),
+        seq,
+        "held while the drag selects content"
+    );
+
+    r.ctrl
+        .handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), 44, 2));
+    r.ctrl.poll();
+    assert_eq!(r.ctrl.render_seq(), seq + 1, "sent once the drag ends");
+}
+
+#[test]
+fn a_deleted_selection_closes_line_select() {
+    let dir = TempDir::new();
+    std::fs::write(dir.path().join("a.rs"), "a\n").unwrap();
+    std::fs::write(dir.path().join("b.rs"), "b\n").unwrap();
+    let mut r = rig(dir.path(), true);
+    r.ctrl.handle(Intent::NavDown);
+    await_text(&mut r.ctrl, "b.rs");
+    r.ctrl.set_content_viewport(40, 10);
+    r.ctrl.enter_line_select_at_top();
+    assert!(r.ctrl.line_select_active());
+
+    std::fs::remove_file(dir.path().join("b.rs")).unwrap();
+    change(&mut r, "b.rs");
+    assert!(!r.ctrl.line_select_active(), "its file is gone");
+    await_text(&mut r.ctrl, "a.rs");
+}
+
+#[test]
+fn cancelling_the_annotation_editor_after_a_reflow_does_not_restore_old_lines() {
+    let dir = TempDir::new();
+    std::fs::write(dir.path().join("a.rs"), "a\n").unwrap();
+    let mut r = rig(dir.path(), true);
+    await_text(&mut r.ctrl, "a.rs");
+    r.ctrl.set_content_viewport(40, 10);
+    r.ctrl.enter_line_select_at_top();
+    r.ctrl.handle_line_select_key(key(KeyCode::Char('a'))); // add-annotation editor, with snapshot
+    assert!(r.ctrl.annotation_editor().is_some());
+
+    r.git.set("a.rs", Status::Modified);
+    change(&mut r, "a.rs"); // line select is not open (the editor is), so the reflow goes out
+    await_text(&mut r.ctrl, "a.rs Diff");
+
+    r.ctrl.handle_annotation_editor_key(key(KeyCode::Esc));
+    assert!(
+        !r.ctrl.line_select_active(),
+        "old line numbers are not restored onto new content"
+    );
+}
+
+#[test]
+fn a_full_render_settles_an_owed_reflow() {
+    let dir = TempDir::new();
+    std::fs::write(dir.path().join("a.rs"), "a\n").unwrap();
+    let mut r = rig(dir.path(), true);
+    await_text(&mut r.ctrl, "a.rs");
+
+    let (started, release) = arm(&r.git.gate);
+    let path = r.root.join("a.rs");
+    assert!(fire(&mut r, WatchEvent::Paths(vec![path])));
+    started.recv().unwrap();
+    let full = next_render(&r);
+    // A sync refresh drops the in-flight job, owes a reflow, then dispatches a full render.
+    r.ctrl.handle(Intent::Refresh);
+    let seq = r.ctrl.render_seq(); // the full render is dispatched
+    await_text(&mut r.ctrl, &full);
+    r.ctrl.poll();
+    assert_eq!(
+        r.ctrl.render_seq(),
+        seq,
+        "no stale reflow once the full render lands"
+    );
+    release.send(()).unwrap();
 }
