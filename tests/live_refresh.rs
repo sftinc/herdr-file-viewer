@@ -899,3 +899,29 @@ fn a_held_reflow_after_the_selection_was_deleted_renders_the_neighbour_fresh() {
         "the deleted file's search is not carried over"
     );
 }
+
+/// Review M4: with no watcher event at all (as with `watch = false`), the selected file is deleted
+/// and the pane regains focus. Draws already re-anchored the selection to the neighbour, so the
+/// focus refresh must compare against the rendered file, not the pre-refresh selection, and render
+/// the neighbour instead of leaving the deleted file's body under its highlight.
+#[test]
+fn focus_gain_after_the_selection_was_deleted_renders_the_neighbour() {
+    let dir = TempDir::new();
+    std::fs::write(dir.path().join("a.rs"), "a\n").unwrap();
+    std::fs::write(dir.path().join("b.rs"), "b\n").unwrap();
+    let mut r = rig(dir.path(), true);
+    r.ctrl.handle(Intent::NavDown);
+    await_text(&mut r.ctrl, "b.rs");
+
+    std::fs::remove_file(dir.path().join("b.rs")).unwrap();
+    assert_eq!(
+        selected(&r.ctrl),
+        "a.rs",
+        "a draw re-anchored to the neighbour"
+    );
+    let seq = r.ctrl.render_seq();
+    let next = next_render(&r);
+    r.ctrl.handle_focus_gained();
+    assert_eq!(r.ctrl.render_seq(), seq + 1, "the neighbour is rendered");
+    await_text(&mut r.ctrl, &format!("a.rs SyntaxContent {next}"));
+}
