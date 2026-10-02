@@ -163,7 +163,7 @@ impl WatchService for NotifyWatch {
     fn watch(&self, paths: &[PathBuf]) -> Option<WatchHandle> {
         use notify::Watcher;
         let (tx, rx) = mpsc::channel();
-        let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+        let handler = move |res: notify::Result<notify::Event>| {
             let event = match res {
                 Ok(ev) if ev.need_rescan() => WatchEvent::Rescan,
                 Ok(ev) if !changes_content(&ev.kind) => return,
@@ -173,8 +173,12 @@ impl WatchService for NotifyWatch {
                 Err(_) => return,
             };
             let _ = tx.send(event);
-        })
-        .ok()?;
+        };
+        // Symlinks are not followed, as the tree does not follow them: on Linux a followed link to
+        // `$HOME` or a shared store would walk and watch that whole tree, burning the user-wide
+        // inotify watch limit for nothing the viewer shows.
+        let config = notify::Config::default().with_follow_symlinks(false);
+        let mut watcher = notify::RecommendedWatcher::new(handler, config).ok()?;
         for path in paths {
             watcher.watch(path, notify::RecursiveMode::Recursive).ok()?;
         }
