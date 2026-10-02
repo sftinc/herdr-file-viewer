@@ -166,3 +166,23 @@ fn git_dirs_of_a_repo_a_linked_worktree_and_a_plain_dir() {
     let plain = TempDir::new();
     assert!(herdr_file_viewer::git::git_dirs(plain.path()).is_empty());
 }
+
+#[test]
+fn the_live_watcher_reports_a_created_file() {
+    use herdr_file_viewer::watch::{NotifyWatch, WatchEvent, WatchService};
+    let dir = TempDir::new();
+    let root = canon(dir.path());
+    let handle = NotifyWatch
+        .watch(std::slice::from_ref(&root))
+        .expect("the watcher starts");
+    fs::write(root.join("new.txt"), "x").unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match handle.rx.recv_timeout(left) {
+            Ok(WatchEvent::Paths(paths)) if paths.iter().any(|p| p.ends_with("new.txt")) => break,
+            Ok(_) => continue,
+            Err(e) => panic!("no event for new.txt: {e}"),
+        }
+    }
+}
