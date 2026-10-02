@@ -44,15 +44,18 @@ fn pass(gate: &Arc<Mutex<Option<Gate>>>) {
     }
 }
 
-/// A watcher the test drives: records every `watch` call and keeps the latest event sender.
+/// A watcher the test drives: records every `watch` call and keeps the latest event sender. The
+/// gate holds a `watch` call open, as a slow inotify walk would.
 #[derive(Clone, Default)]
 struct FakeWatch {
     calls: Arc<Mutex<Vec<Vec<PathBuf>>>>,
     tx: Arc<Mutex<Option<mpsc::Sender<WatchEvent>>>>,
     fail: bool,
+    gate: Arc<Mutex<Option<Gate>>>,
 }
 impl WatchService for FakeWatch {
     fn watch(&self, paths: &[PathBuf]) -> Option<WatchHandle> {
+        pass(&self.gate);
         self.calls.lock().unwrap().push(paths.to_vec());
         if self.fail {
             return None;
@@ -171,6 +174,8 @@ fn rig_with(dir: &Path, is_git: bool, watch: FakeWatch) -> Rig {
         components,
     );
     ctrl.set_watcher(Box::new(watch.clone()));
+    // Watch setup runs off the UI thread; wait for it to land (installed, or failed to start).
+    await_until(&mut ctrl, |c| !c.watch_starting());
     Rig {
         ctrl,
         watch,
@@ -491,6 +496,7 @@ fn re_root_replaces_the_watcher() {
     std::fs::write(other.path().join("z.rs"), "z\n").unwrap();
     let mut r = rig(dir.path(), false);
     r.ctrl.re_root(other.path());
+    await_until(&mut r.ctrl, |c| c.watching()); // setup is off-thread
     let calls = r.watch.calls.lock().unwrap().clone();
     assert_eq!(calls.len(), 2, "one watch per root");
     assert_eq!(calls[1][0], other.path().canonicalize().unwrap());
@@ -924,4 +930,21 @@ fn focus_gain_after_the_selection_was_deleted_renders_the_neighbour() {
     r.ctrl.handle_focus_gained();
     assert_eq!(r.ctrl.render_seq(), seq + 1, "the neighbour is rendered");
     await_text(&mut r.ctrl, &format!("a.rs SyntaxContent {next}"));
+}
+
+/// Review I3 (AC-17): watcher setup (an inotify walk of the whole root on Linux) runs off the UI
+/// thread, so a re-root returns while the new root's `watch` call is still held open.
+#[test]
+fn re_root_does_not_wait_for_the_watcher_to_start() {
+    let dir = TempDir::new();
+    let other = TempDir::new();
+    let mut r = rig(dir.path(), false);
+    let (started, release) = arm(&r.watch.gate);
+    r.ctrl.re_root(other.path()); // returns although the watch call below is held
+    started.recv().unwrap();
+    let (starting, watching) = (r.ctrl.watch_starting(), r.ctrl.watching());
+    release.send(()).unwrap(); // before the asserts, so a failure leaves no blocked thread
+    assert!(starting, "setup is still running");
+    assert!(!watching, "not watching until setup lands");
+    await_until(&mut r.ctrl, |c| c.watching());
 }

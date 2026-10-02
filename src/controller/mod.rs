@@ -993,7 +993,11 @@ pub struct Controller {
     // consumed by the T-7 Keybindings overlay; exercised by this module's tests.
     key_load_outcome: crate::input::KeyLoadOutcome,
     /// Starts the file watcher for live refresh; `None` when the `watch` setting is off.
-    watcher: Option<Box<dyn WatchService>>,
+    watcher: Option<Arc<dyn WatchService>>,
+    /// The watch being set up off the UI thread for the current root: its handle (`None` when it
+    /// could not start) and filter. `poll` installs it when it lands; a re-root drops it, so a
+    /// stale root's watch never installs.
+    watch_setup_rx: Option<mpsc::Receiver<(Option<WatchHandle>, EventFilter)>>,
     /// The running watch on the current root. `None` when off, when it failed to start, or after
     /// it stopped; focus and `r` refresh either way.
     watch: Option<WatchHandle>,
@@ -1142,6 +1146,7 @@ impl Controller {
             bindings: crate::input::default_bindings(),
             key_load_outcome: crate::input::KeyLoadOutcome::default(),
             watcher: None,
+            watch_setup_rx: None,
             watch: None,
             watch_filter: None,
             debounce: Debounce::default(),
@@ -1413,13 +1418,19 @@ impl Controller {
     /// Turn on live refresh with this watcher (the `watch` setting). Without one the viewer
     /// refreshes on focus and `r` only.
     pub fn set_watcher(&mut self, service: Box<dyn WatchService>) {
-        self.watcher = Some(service);
+        self.watcher = Some(Arc::from(service));
         self.start_watch();
     }
 
-    /// Whether a file watcher is running: false when it is off, failed to start, or stopped.
+    /// Whether a file watcher is running: false when it is off, still starting, failed to start,
+    /// or stopped.
     pub fn watching(&self) -> bool {
         self.watch.is_some()
+    }
+
+    /// Whether the watch for the current root is still being set up off the UI thread.
+    pub fn watch_starting(&self) -> bool {
+        self.watch_setup_rx.is_some()
     }
 
     /// Whether a watcher-triggered status job is in flight. The observable tell tests wait on.
@@ -1428,31 +1439,46 @@ impl Controller {
     }
 
     /// (Re)start the watch for the current root: the root, plus the git dir and common git dir
-    /// when they lie outside it (a linked worktree). A watcher that cannot start leaves `watch`
-    /// empty, and the viewer refreshes on focus and `r` as before, with no banner.
+    /// when they lie outside it (a linked worktree). Setup runs off the UI thread, because
+    /// inotify walks the whole root to add its watches and input must never block (AC-17); `poll`
+    /// installs the result. A watcher that cannot start leaves `watch` empty, and the viewer
+    /// refreshes on focus and `r` as before, with no banner.
     fn start_watch(&mut self) {
         self.watch = None;
         self.watch_filter = None;
+        self.watch_setup_rx = None;
         self.debounce = Debounce::default();
         let Some(service) = &self.watcher else {
             return;
         };
-        let git_dirs = if self.is_git_repo {
-            crate::git::git_dirs(&self.root)
-        } else {
-            Vec::new()
-        };
-        let filter = EventFilter::new(&self.root, &git_dirs);
-        let mut paths = vec![filter.root().to_path_buf()];
-        paths.extend(
-            filter
-                .git_dirs()
-                .iter()
-                .filter(|d| !d.starts_with(filter.root()))
-                .cloned(),
-        );
-        self.watch = service.watch(&paths);
-        self.watch_filter = Some(filter);
+        let service = Arc::clone(service);
+        let root = self.root.clone();
+        let is_git_repo = self.is_git_repo;
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            // Contain a panic, as the status jobs do: no send, and `poll` drops the receiver.
+            let computed = std::panic::catch_unwind(AssertUnwindSafe(|| {
+                let git_dirs = if is_git_repo {
+                    crate::git::git_dirs(&root)
+                } else {
+                    Vec::new()
+                };
+                let filter = EventFilter::new(&root, &git_dirs);
+                let mut paths = vec![filter.root().to_path_buf()];
+                paths.extend(
+                    filter
+                        .git_dirs()
+                        .iter()
+                        .filter(|d| !d.starts_with(filter.root()))
+                        .cloned(),
+                );
+                (service.watch(&paths), filter)
+            }));
+            if let Ok(result) = computed {
+                let _ = tx.send(result); // the receiver is gone if a re-root superseded this
+            }
+        });
+        self.watch_setup_rx = Some(rx);
     }
 
     /// Drain the file watcher and start a background refresh once a burst has settled. Called
@@ -3954,6 +3980,18 @@ impl Controller {
                     applied = true;
                 }
                 Err(mpsc::TryRecvError::Disconnected) => self.status_rx = None,
+                Err(mpsc::TryRecvError::Empty) => {}
+            }
+        }
+        // The watch set up off-thread for the current root: install it once it lands.
+        if let Some(rx) = &self.watch_setup_rx {
+            match rx.try_recv() {
+                Ok((handle, filter)) => {
+                    self.watch = handle;
+                    self.watch_filter = Some(filter);
+                    self.watch_setup_rx = None;
+                }
+                Err(mpsc::TryRecvError::Disconnected) => self.watch_setup_rx = None,
                 Err(mpsc::TryRecvError::Empty) => {}
             }
         }
