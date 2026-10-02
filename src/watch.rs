@@ -18,13 +18,15 @@ pub enum WatchEvent {
 }
 
 /// A running watcher: its events, and whatever keeps the OS watch alive (dropped with it).
+/// `Send`, because it is built on the setup thread and handed to the UI thread.
 pub struct WatchHandle {
     pub rx: mpsc::Receiver<WatchEvent>,
-    pub guard: Box<dyn std::any::Any>,
+    pub guard: Box<dyn std::any::Any + Send>,
 }
 
-/// Starts OS file watches. Behind a trait so tests feed events without a real watcher.
-pub trait WatchService {
+/// Starts OS file watches. Behind a trait so tests feed events without a real watcher. `Send +
+/// Sync`, because setup runs off the UI thread: inotify walks the whole root to add its watches.
+pub trait WatchService: Send + Sync {
     /// Watch every path in `paths` recursively. `None` when the watcher cannot start (for example
     /// the Linux inotify watch limit); the viewer then refreshes on focus and `r` only.
     fn watch(&self, paths: &[PathBuf]) -> Option<WatchHandle>;
