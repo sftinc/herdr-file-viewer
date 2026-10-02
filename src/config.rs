@@ -157,6 +157,9 @@ pub struct Config {
     /// turning on for a deeply-nested layout (a Java/Maven `src/main/java/...`, a nested monorepo),
     /// where the per-segment tree spends most of the column on indentation.
     pub compact_dirs: Option<bool>,
+    /// Live refresh: watch the root and refresh the tree, git markers and active preview on their
+    /// own, even while the pane is unfocused. `None` falls back to `true`.
+    pub watch: Option<bool>,
     /// The automatic initial view for Git-changed files: `"diff"` (the default) or `"content"`
     /// (apply the normal file-type policy to paths that still exist: rendered Markdown, syntax
     /// content otherwise). Deleted paths remain diff-first. A lenient string resolved by
@@ -338,6 +341,9 @@ pub struct EffectiveSettings {
     /// The effective **compact directory chains** switch: the config `compact_dirs` when present,
     /// else `false`. Seeds the tree at startup. Config-or-default (no env var).
     pub compact_dirs: bool,
+    /// The effective **live refresh** switch: the config `watch` when present, else `true`.
+    /// Config-or-default (no env var).
+    pub watch: bool,
     /// The effective automatic view policy for Git-changed files. Config `"content"` selects the
     /// normal file-type view; absent, invalid, or `"diff"` preserves the original diff-first
     /// behavior. Config-or-default (no env var).
@@ -431,6 +437,7 @@ pub fn resolve(config: &Config, get_env: impl Fn(&str) -> Option<String>) -> Eff
     // does not ask for it: compaction is a real trade (fewer rows and far less indentation, but a
     // row no longer maps 1:1 to a directory), and which side wins depends on how deep the repo is.
     let compact_dirs = config.compact_dirs.unwrap_or(false);
+    let watch = config.watch.unwrap_or(true);
 
     // Config > default; no env var. Lenient string match (trimmed, case-insensitive): only
     // `content` bypasses the changed-file diff preference. Anything else preserves the original
@@ -549,6 +556,7 @@ pub fn resolve(config: &Config, get_env: impl Fn(&str) -> Option<String>) -> Eff
         hide_dotfiles,
         show_ignored,
         compact_dirs,
+        watch,
         changed_file_view,
         baseline,
         update_check,
@@ -797,6 +805,16 @@ mod tests {
             !env_ignored.show_ignored,
             "no environment variable participates in this key"
         );
+    }
+
+    #[test]
+    fn watch_defaults_on_and_config_turns_it_off() {
+        let (config, _outcome) = parse_config("");
+        let on = resolve(&config, |_| None);
+        assert!(on.watch, "live refresh is on by default");
+        let (config, _outcome) = parse_config("watch = false\n");
+        let off = resolve(&config, |_| None);
+        assert!(!off.watch);
     }
 
     #[test]

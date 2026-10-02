@@ -130,6 +130,11 @@ pub fn run(open_flag: Option<String>) -> io::Result<()> {
     // Apply the config-driven tree shape (`compact_dirs`): fold a chain of single-child
     // directories into one row. A startup setting — there is no runtime toggle for it.
     controller.apply_compact_dirs(eff.compact_dirs);
+    // Live refresh: watch the root so the tree, git markers and preview update while the pane is
+    // unfocused. Off => no watcher, and the viewer refreshes on focus and `r` only.
+    if eff.watch {
+        controller.set_watcher(Box::new(crate::watch::NotifyWatch));
+    }
     // Apply the config-driven quit guard (`confirm_discard`): whether quitting with
     // session annotations held confirms first or discards them immediately.
     controller.apply_confirm_discard(eff.confirm_discard);
@@ -443,6 +448,10 @@ fn event_loop(terminal: &mut DefaultTerminal, controller: &mut Controller) -> io
         }
         // Launch open-range passive highlight (1s); redraw once when it expires.
         if controller.tick_open_range_flash(now) {
+            dirty = true;
+        }
+        // Live refresh: drain the file watcher and start a background refresh once a burst settles.
+        if controller.tick_watch(now) {
             dirty = true;
         }
     }
