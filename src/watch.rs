@@ -144,3 +144,33 @@ impl Debounce {
         due
     }
 }
+
+/// The live watcher: FSEvents on macOS, inotify on Linux, ReadDirectoryChangesW on Windows. notify
+/// runs its own thread and calls back; the callback forwards each batch over a channel the
+/// controller drains every tick.
+pub struct NotifyWatch;
+
+impl WatchService for NotifyWatch {
+    fn watch(&self, paths: &[PathBuf]) -> Option<WatchHandle> {
+        use notify::Watcher;
+        let (tx, rx) = mpsc::channel();
+        let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+            let event = match res {
+                Ok(ev) if ev.need_rescan() => WatchEvent::Rescan,
+                Ok(ev) => WatchEvent::Paths(ev.paths),
+                // A backend error mid-session (say, a folder created past the watch limit) is not
+                // fatal: keep forwarding what still arrives.
+                Err(_) => return,
+            };
+            let _ = tx.send(event);
+        })
+        .ok()?;
+        for path in paths {
+            watcher.watch(path, notify::RecursiveMode::Recursive).ok()?;
+        }
+        Some(WatchHandle {
+            rx,
+            guard: Box::new(watcher),
+        })
+    }
+}
