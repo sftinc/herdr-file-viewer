@@ -246,7 +246,18 @@ fn route_annotation_key(
 /// tree enumeration in `view_state`) on every idle tick.
 fn event_loop(terminal: &mut DefaultTerminal, controller: &mut Controller) -> io::Result<()> {
     let mut dirty = true; // paint the first frame
+    // The root the process cwd was last moved into; `None` so the first turn moves it.
+    let mut cwd_root: Option<PathBuf> = None;
     loop {
+        // Keep the process cwd on the viewed root, at launch and after a worktree switch. herdr
+        // starts the relative pane command from the plugin checkout, and its default
+        // `new_cwd = "follow"` opens new panes in the focused pane's live process cwd, so a viewer
+        // left there would open every new pane in the plugin folder. Best-effort: nothing in the
+        // viewer resolves paths against the process cwd.
+        if cwd_root.as_deref() != Some(controller.root()) {
+            let _ = std::env::set_current_dir(controller.root());
+            cwd_root = Some(controller.root().to_path_buf());
+        }
         if dirty {
             let mut need_redraw = false;
             terminal.draw(|frame| {
