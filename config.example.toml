@@ -82,6 +82,12 @@
 # toggles it. Default:
 #compact_dirs = false
 
+# Refresh the tree, git markers and the open preview on their own when files or
+# git state change, even while the pane is unfocused (within about a second).
+# Your selection, scroll position and search are kept. Turn off to refresh only
+# when the pane regains focus or on `r`. Default:
+#watch = true
+
 # Choose the automatic initial view for Git-changed files. "diff" preserves the
 # default diff-first behavior. "content" applies the normal file-type policy
 # instead: Markdown opens rendered, while source/text opens in syntax content.

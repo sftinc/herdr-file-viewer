@@ -292,6 +292,7 @@ pub fn settings_text(
          hide_dotfiles     = {hide_dotfiles}\n\
          show_ignored      = {show_ignored}\n\
          compact_dirs      = {compact_dirs}\n\
+         watch             = {watch}\n\
          changed_file_view = {changed_file_view}\n\
          baseline          = {baseline}\n\
          update_check      = {update_check}\n\
@@ -308,6 +309,7 @@ pub fn settings_text(
         hide_dotfiles = eff.hide_dotfiles,
         show_ignored = eff.show_ignored,
         compact_dirs = eff.compact_dirs,
+        watch = eff.watch,
         changed_file_view = eff.changed_file_view.label(),
         baseline = baseline,
         update_check = update_check,
@@ -825,6 +827,7 @@ mod tests {
             hide_dotfiles: true,
             show_ignored: true,
             compact_dirs: true,
+            watch: true,
             changed_file_view: crate::view_policy::ChangedFileView::Content,
             baseline: Some(crate::git::Baseline::Base),
             update_check: false,
@@ -868,6 +871,7 @@ mod tests {
             "hide_dotfiles",
             "show_ignored",
             "compact_dirs",
+            "watch",
             "changed_file_view",
             "baseline",
             "update_check",

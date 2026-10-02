@@ -64,10 +64,11 @@ default (wide tables sized to fit, over-long cells shown as `…`); press `w` fo
 renders tables at full width and scrolls sideways so you can read every cell. The layout reflows
 automatically when the pane is resized.
 
-**Git state stays current.** The viewer re-reads git status when the pane **regains focus**, so
-changes you make outside it (a merge, pull, or commit in another pane) show up automatically; `r`
-forces a full refresh on demand. (Focus-refresh updates the tree's status without disturbing your
-content scroll.)
+**Git state stays current.** The viewer watches the repo, so files created, edited or deleted in
+another pane, and staging, commits and checkouts, show up in the tree, its git markers and the open
+preview within about a second, even while the pane is unfocused. Your selection, scroll position and
+search are kept. It also re-reads git status when the pane **regains focus**, and `r` forces a full
+refresh on demand. Set `watch = false` to refresh on focus and `r` only.
 
 Character keys with a control modifier are normally inert, so terminal chords such as `Ctrl+C` do
 not trigger a viewer action; `Shift` is permitted for keys such as `<`, `>`, `{`, and `}` (and `a`/`A`,

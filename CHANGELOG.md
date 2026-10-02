@@ -7,6 +7,9 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- Live refresh: the tree, git markers and the open preview update on their own when files or git state change, even while the viewer pane is unfocused. Your selection, scroll, search and view choice are kept. `watch = false` turns it off. → [usage](docs/usage.md#git-awareness) · [configuration](docs/configuration.md)
+
 ### Fixed
 - The selected file stays selected when a file appears or disappears above it. A focus refresh or `r` used to move the highlight to a different file.
 

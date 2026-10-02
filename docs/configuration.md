@@ -48,7 +48,7 @@ config key and above the built-in default — `editor` (`$EDITOR`) and `update_c
 (`$HERDR_FILE_VIEWER_NO_UPDATE_CHECK`) — giving those two a `config > env > default` chain. Every
 other key (`markdown`, `diff`, `syntax`, `open`, `reveal`, `hide_dotfiles`, `show_ignored`,
 `compact_dirs`, `changed_file_view`, `baseline`, `confirm_discard`, `scroll_lines`, `tree_width`,
-`tree_position`, `tree_max_cols`, `open_direction`, `preview_max_lines`, `preview_max_kib`) has no
+`tree_position`, `tree_max_cols`, `open_direction`, `preview_max_lines`, `preview_max_kib`, `watch`) has no
 applicable environment variable; for those it's `config > default` only.
 
 ## Keys
@@ -68,6 +68,7 @@ reveal = "nautilus"
 hide_dotfiles = false       # true to hide dotfiles at startup (the `.` key still toggles)
 show_ignored = false        # true to show gitignored files at startup (the `i` key still toggles)
 compact_dirs = false        # true to draw a chain of single-child dirs as ONE row (src/main/java)
+watch = true                # false to refresh only on focus and r
 changed_file_view = "diff"  # changed files start in "diff", or use normal "content" by file type
 baseline = "base"           # force startup diff baseline: "base" or "head" (omit for context-smart default)
 update_check = true         # false disables all remote requests and their display
@@ -154,6 +155,15 @@ every frame. Listings themselves are still read live — a new file appears as i
 always did — but the *span* of a folded row can lag. If a file created outside the viewer is what
 ends a chain, the row keeps its old span until the viewer re-checks, which it does on launch, `r`,
 returning from the editor, switching baseline, and regaining focus.
+
+`watch` (default `true`) keeps the viewer current while its pane is unfocused: it watches the root,
+and when files change, or you stage, commit or check out, it refreshes the tree, git markers and the
+open preview within about a second, keeping your selection, scroll position, search and view choice.
+A line select or a mouse selection in progress holds the preview refresh until it finishes. With
+`false`, the viewer refreshes when its pane regains focus and on `r`. If the watcher cannot start
+(for example, Linux's inotify watch limit on a very large repo), the viewer falls back to that
+silently. A file that a nested `.gitignore` re-includes with `!pattern` while the top-level rules
+ignore it waits for focus or `r`.
 
 `confirm_discard` guards the one piece of state the viewer can lose. Annotations (`a` / `A`) are
 session-only, so both quitting (`q`) and switching worktree (`W`) discard them. By default either
