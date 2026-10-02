@@ -12,6 +12,7 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 - The selected file stays selected when a file appears or disappears above it. A focus refresh or `r` used to move the highlight to a different file.
+- New panes opened while the viewer is focused now start in the viewed project (or the worktree you switched to), not the plugin's install folder. herdr's default `new_cwd = "follow"` copies the focused pane's process directory, and the viewer never moved out of the folder herdr launched it from.
 
 ## [1.17.0] - 2026-09-16
 
