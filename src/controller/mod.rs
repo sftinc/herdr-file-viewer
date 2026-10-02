@@ -1542,9 +1542,8 @@ impl Controller {
             if self.line_select_active() {
                 self.exit_line_select();
             }
-            if self.drag == Some(Drag::ContentSelect) {
-                self.drag = None;
-            }
+            // A content drag is left alone: `dispatch_render` already clears the selection, and
+            // clearing `drag` would turn the user's mouse release into a tree click.
             self.dispatch_render();
         }
     }
@@ -1552,7 +1551,8 @@ impl Controller {
     /// Send the wanted background reflow unless something is in the way: a render outstanding
     /// (sending would supersede it and cancel the user's `L` or go-to-line), or line select is
     /// open, or a mouse drag is selecting content (the text under the selection must not move).
-    /// The pending bit stays set, and `poll` retries every tick. Keeps scroll,
+    /// The pending bit stays set, and `poll` retries every tick (a lost mouse release therefore
+    /// holds reflows until the next press resets the drag). Keeps scroll,
     /// committed search and view overrides (the `poll` reflow path), re-deriving the view mode
     /// from the new changed-set. Returns whether it was sent.
     fn try_bg_reflow(&mut self) -> bool {
@@ -1564,6 +1564,7 @@ impl Controller {
             return false;
         }
         self.bg_reflow_pending = false;
+        self.forget_editor_line_select();
         let Some(node) = self.tree.selected() else {
             return false;
         };
@@ -3692,7 +3693,16 @@ impl Controller {
     /// the diff and delegates to the external renderer. A directory or empty selection clears
     /// the pane synchronously (no job). Every call bumps `latest_seq`, so any still-in-flight
     /// render for the previous selection is superseded and dropped by [`poll`].
+    /// An open add-annotation editor must not restore a line select whose numbers point into a
+    /// document that is being, or has been, replaced.
+    fn forget_editor_line_select(&mut self) {
+        if let Modal::AnnotationEditor(editor) = &mut self.modal {
+            editor.forget_line_select();
+        }
+    }
+
     fn dispatch_render(&mut self) {
+        self.forget_editor_line_select();
         self.latest_seq += 1;
         let seq = self.latest_seq;
         // A full render settles any owed background reflow: no stale one fires after it lands.
@@ -3849,12 +3859,8 @@ impl Controller {
                     ))
                 };
                 self.active_display = display;
-                // The active document was replaced, even if for the same file: an open add-
-                // annotation editor must not restore a line select whose numbers pointed into the
-                // old document.
-                if let Modal::AnnotationEditor(editor) = &mut self.modal {
-                    editor.forget_line_select();
-                }
+                // The active document was replaced, even if for the same file.
+                self.forget_editor_line_select();
                 // Covers the placeholder→land window: a selection dragged over "Rendering…" after
                 // dispatch_render's clear must not carry its stale coordinates onto the new body.
                 // (Also dropped on a reflow: an ambient selection's line/col coords are against the
