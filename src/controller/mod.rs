@@ -57,6 +57,7 @@ use crate::update::{self, NoticeSnapshot, UpdateState};
 use crate::view_policy::{
     ChangedFileView, FileDescriptor, ViewMode, applicable_modes, default_mode,
 };
+use crate::watch::{Debounce, EventFilter, WatchEvent, WatchHandle, WatchService};
 use annotation::{AnnotationEditorState, AnnotationListState};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use pinned::PinnedSnapshot;
@@ -596,6 +597,13 @@ struct RenderCompletion {
 /// the `poll` that applies them.
 type StatusResult = (BTreeMap<PathBuf, Status>, BTreeMap<PathBuf, Status>);
 
+/// What the watcher-triggered status job collects off the UI thread.
+struct BgStatus {
+    status: BTreeMap<PathBuf, Status>,
+    changed: BTreeMap<PathBuf, Status>,
+    branch: Option<String>,
+}
+
 /// The single open modal overlay, or [`Modal::None`] when the columns have focus. Collapses what
 /// were four parallel `Option<…State>` fields (picker / finder / prompt / help) into one value, so
 /// "at most one modal is open at a time" is enforced by the type rather than by hand: opening any
@@ -984,6 +992,28 @@ pub struct Controller {
     #[allow(dead_code)]
     // consumed by the T-7 Keybindings overlay; exercised by this module's tests.
     key_load_outcome: crate::input::KeyLoadOutcome,
+    /// Starts the file watcher for live refresh; `None` when the `watch` setting is off.
+    watcher: Option<Box<dyn WatchService>>,
+    /// The running watch on the current root. `None` when off, when it failed to start, or after
+    /// it stopped; focus and `r` refresh either way.
+    watch: Option<WatchHandle>,
+    /// Which watcher paths matter for the current root.
+    watch_filter: Option<EventFilter>,
+    /// The burst of relevant events being debounced.
+    debounce: Debounce,
+    /// The watcher-triggered status job in flight, separate from re-root's `status_rx`.
+    bg_status_rx: Option<mpsc::Receiver<BgStatus>>,
+    /// A refresh was triggered while `bg_status_rx` was in flight: run one more when it lands.
+    bg_status_again: bool,
+    /// A background reflow of the active preview is wanted but has not been sent yet.
+    bg_reflow_pending: bool,
+    /// The seq of the last render sent to the worker whose result has not come back. While set,
+    /// a background reflow is held, so it can never supersede (and cancel) the user's `L` or
+    /// go-to-line render.
+    outstanding_render: Option<u64>,
+    /// The selection the active preview was last rendered for (`dispatch_render`), so a refresh
+    /// can tell "same file, reflow in place" from "the file is gone, render the neighbour".
+    rendered_path: Option<PathBuf>,
 }
 
 impl Controller {
@@ -1111,6 +1141,15 @@ impl Controller {
             // config's `[keys]` overrides via `set_keybindings`; tests inherit these unchanged.
             bindings: crate::input::default_bindings(),
             key_load_outcome: crate::input::KeyLoadOutcome::default(),
+            watcher: None,
+            watch: None,
+            watch_filter: None,
+            debounce: Debounce::default(),
+            bg_status_rx: None,
+            bg_status_again: false,
+            bg_reflow_pending: false,
+            outstanding_render: None,
+            rendered_path: None,
         };
         // Bound the tree's ancestor `.gitignore` search at this repo's own boundary rather than
         // letting it climb into an unrelated enclosing directory/repository (see
@@ -1319,6 +1358,13 @@ impl Controller {
         // applies it when the changed-set lands.
         self.tree.set_show_ignored(self.show_ignored);
         self.tree.set_hide_hidden(self.hide_hidden);
+        // Live refresh follows the root: the old root's watch, burst, status job and reflow are
+        // void, and the old worker's results never reach the new channel.
+        self.bg_status_rx = None;
+        self.bg_status_again = false;
+        self.bg_reflow_pending = false;
+        self.outstanding_render = None;
+        self.start_watch();
 
         // A re-root happens mid-session, so input must never block (AC-17): compute the new root's
         // status + changed-set OFF the input thread and let `poll` apply the markers + changed-only
@@ -1362,6 +1408,160 @@ impl Controller {
             }
         });
         self.status_rx = Some(rx);
+    }
+
+    /// Turn on live refresh with this watcher (the `watch` setting). Without one the viewer
+    /// refreshes on focus and `r` only.
+    pub fn set_watcher(&mut self, service: Box<dyn WatchService>) {
+        self.watcher = Some(service);
+        self.start_watch();
+    }
+
+    /// Whether a file watcher is running: false when it is off, failed to start, or stopped.
+    pub fn watching(&self) -> bool {
+        self.watch.is_some()
+    }
+
+    /// Whether a watcher-triggered status job is in flight. The observable tell tests wait on.
+    pub fn watch_refresh_in_flight(&self) -> bool {
+        self.bg_status_rx.is_some()
+    }
+
+    /// (Re)start the watch for the current root: the root, plus the git dir and common git dir
+    /// when they lie outside it (a linked worktree). A watcher that cannot start leaves `watch`
+    /// empty, and the viewer refreshes on focus and `r` as before, with no banner.
+    fn start_watch(&mut self) {
+        self.watch = None;
+        self.watch_filter = None;
+        self.debounce = Debounce::default();
+        let Some(service) = &self.watcher else {
+            return;
+        };
+        let git_dirs = if self.is_git_repo {
+            crate::git::git_dirs(&self.root)
+        } else {
+            Vec::new()
+        };
+        let filter = EventFilter::new(&self.root, &git_dirs);
+        let mut paths = vec![filter.root().to_path_buf()];
+        paths.extend(
+            filter
+                .git_dirs()
+                .iter()
+                .filter(|d| !d.starts_with(filter.root()))
+                .cloned(),
+        );
+        self.watch = service.watch(&paths);
+        self.watch_filter = Some(filter);
+    }
+
+    /// Drain the file watcher and start a background refresh once a burst has settled. Called
+    /// every tick by the run loop, with `now` injected so tests drive the debounce without
+    /// sleeping. Returns whether a redraw is needed.
+    pub fn tick_watch(&mut self, now: Instant) -> bool {
+        let Some(handle) = &self.watch else {
+            return false;
+        };
+        let mut relevant = false;
+        let mut stopped = false;
+        loop {
+            match handle.rx.try_recv() {
+                Ok(WatchEvent::Rescan) => relevant = true,
+                Ok(WatchEvent::Paths(paths)) => {
+                    relevant |= self
+                        .watch_filter
+                        .as_ref()
+                        .is_some_and(|f| paths.iter().any(|p| f.relevant(p, self.show_ignored)));
+                }
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    stopped = true;
+                    break;
+                }
+            }
+        }
+        if relevant {
+            self.debounce.event(now);
+        }
+        if stopped {
+            self.watch = None; // fall back silently to focus refresh
+        }
+        if !self.debounce.due(now) {
+            return false;
+        }
+        if let Some(filter) = &mut self.watch_filter {
+            filter.reload(); // a `.gitignore` edit applies from here on
+        }
+        self.request_bg_status();
+        true
+    }
+
+    /// Start the watcher-triggered refresh. Outside a repo there is no status: just re-probe the
+    /// tree and reflow. In a repo, one status job runs at a time; a trigger while one is in flight
+    /// sets a bit, and one more runs when it lands.
+    fn request_bg_status(&mut self) {
+        if !self.is_git_repo {
+            self.tree.invalidate_compaction();
+            self.after_bg_refresh();
+            return;
+        }
+        if self.bg_status_rx.is_some() {
+            self.bg_status_again = true;
+            return;
+        }
+        let git = Arc::clone(&self.git);
+        let baseline = self.baseline;
+        let root = self.root.clone();
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            // Contain a git panic, as the re-root fetch does: no send, and `poll` drops the
+            // disconnected receiver.
+            let computed = std::panic::catch_unwind(AssertUnwindSafe(|| BgStatus {
+                status: git.status(),
+                changed: git.changed_set(baseline),
+                branch: crate::git::current_branch(&root),
+            }));
+            if let Ok(result) = computed {
+                let _ = tx.send(result);
+            }
+        });
+        self.bg_status_rx = Some(rx);
+    }
+
+    /// After a background refresh: the tree re-derives the selection from its stored path. Same
+    /// file or directory, reflow the preview in place (always: a commit can change the diff
+    /// without touching the file, and the view mode follows the changed-set). Different (its
+    /// path is gone), render the new selection.
+    fn after_bg_refresh(&mut self) {
+        if self.tree.selected().map(|n| n.path) == self.rendered_path {
+            self.bg_reflow_pending = true;
+            self.try_bg_reflow();
+        } else {
+            self.dispatch_render();
+        }
+    }
+
+    /// Send the wanted background reflow unless something is in the way: a render outstanding
+    /// (sending would supersede it and cancel the user's `L` or go-to-line). Keeps scroll,
+    /// committed search and view overrides (the `poll` reflow path), re-deriving the view mode
+    /// from the new changed-set. Returns whether it was sent.
+    fn try_bg_reflow(&mut self) -> bool {
+        if !self.bg_reflow_pending || self.outstanding_render.is_some() {
+            return false;
+        }
+        self.bg_reflow_pending = false;
+        let Some(node) = self.tree.selected() else {
+            return false;
+        };
+        let (mode, directory_diff) = if self.status_mode && self.is_git_repo {
+            (ViewMode::Diff, node.kind == NodeKind::Dir)
+        } else if node.kind == NodeKind::File {
+            (self.effective_mode(&node.path), false)
+        } else {
+            return false; // a directory outside status mode shows guidance; nothing to re-render
+        };
+        self.dispatch_reflow(node.path, mode, directory_diff);
+        true
     }
 
     // ---- state accessors (used by the Presenter wiring and tests) ----------------------
@@ -3391,7 +3591,7 @@ impl Controller {
         if node.kind == NodeKind::File
             && self.effective_mode(&node.path) == ViewMode::RenderedMarkdown
         {
-            self.dispatch_reflow(node.path, ViewMode::RenderedMarkdown);
+            self.dispatch_reflow(node.path, ViewMode::RenderedMarkdown, false);
         }
     }
 
@@ -3416,7 +3616,7 @@ impl Controller {
             ViewMode::SyntaxContent => false,
         };
         if reflow {
-            self.dispatch_reflow(node.path, mode);
+            self.dispatch_reflow(node.path, mode, false);
         }
     }
 
@@ -3428,7 +3628,7 @@ impl Controller {
     /// doesn't flash; the worker collapses the backlog so only the final state renders. [`poll`]
     /// applies the result by `seq` and, seeing it flagged in `reflow_seq`, keeps the scroll and
     /// recomputes an active search.
-    fn dispatch_reflow(&mut self, path: PathBuf, mode: ViewMode) {
+    fn dispatch_reflow(&mut self, path: PathBuf, mode: ViewMode, directory_diff: bool) {
         self.latest_seq += 1;
         let seq = self.latest_seq;
         self.reflow_seq = Some(seq);
@@ -3436,9 +3636,8 @@ impl Controller {
         // Status mode always diffs the working tree, so a reflow must use the SAME forced
         // `Baseline::Head` `dispatch_render` does — otherwise a resize/wrap re-render on a
         // feature branch (where `self.baseline` is `Base`) would silently flip a status-mode diff
-        // from the working tree to the merge-base. `dispatch_reflow` only fires for a selected
-        // FILE (rerender_after_resize/_wrap_toggle both return early for a directory), so the
-        // directory-scoped diff never routes here — `directory_diff` stays false.
+        // from the working tree to the merge-base. Resize and wrap reflows pass false (they only
+        // fire for a FILE); a background reflow of a status-mode directory passes true.
         let baseline = if self.status_mode && self.is_git_repo {
             Baseline::Head
         } else {
@@ -3446,21 +3645,27 @@ impl Controller {
         };
         // Ignore a send error: if the worker is gone the current content simply stays; `poll` will
         // never receive a result for this seq, which is fine (nothing was cleared).
-        let _ = self.job_tx.send(RenderJob {
-            seq,
-            root: self.root.clone(),
-            branch: self.captured_branch(),
-            presentation: self.preview_presentation(mode),
-            path,
-            rel,
-            mode,
-            baseline,
-            is_git: self.is_git_repo,
-            directory_diff: false,
-            wrap_width: self.md_wrap_width(),
-            pane_width: self.pane_width(),
-            diff_render_mode: self.diff_render_mode,
-        });
+        if self
+            .job_tx
+            .send(RenderJob {
+                seq,
+                root: self.root.clone(),
+                branch: self.captured_branch(),
+                presentation: self.preview_presentation(mode),
+                path,
+                rel,
+                mode,
+                baseline,
+                is_git: self.is_git_repo,
+                directory_diff,
+                wrap_width: self.md_wrap_width(),
+                pane_width: self.pane_width(),
+                diff_render_mode: self.diff_render_mode,
+            })
+            .is_ok()
+        {
+            self.outstanding_render = Some(seq);
+        }
     }
 
     /// Dispatch a render of the current selection to the worker thread (AC-23) — never
@@ -3501,8 +3706,10 @@ impl Controller {
         let Some(node) = self.tree.selected() else {
             // No visible node: an empty tree or a filter (changed-only, gitignore, etc.)
             // that matched nothing. Show guidance instead of a blank pane.
+            self.rendered_path = None;
             return self.clear_content(EmptyReason::NoFiles);
         };
+        self.rendered_path = Some(node.path.clone());
         // Git-status mode (`d`): directories render a pathspec-scoped working-tree diff instead of
         // empty-state guidance. Files still go through the normal job path with forced Diff.
         let (mode, directory_diff, baseline) = if self.status_mode && self.is_git_repo {
@@ -3552,6 +3759,7 @@ impl Controller {
             })
             .is_ok()
         {
+            self.outstanding_render = Some(seq);
             let previous_title = self.active_display.title();
             let previous_presentation = self.active_display.presentation().copied();
             let previous_origin = self.active_display.displayed_origin().cloned();
@@ -3587,6 +3795,10 @@ impl Controller {
         while let Ok(completion) = self.result_rx.try_recv() {
             let RenderCompletion { job, result } = completion;
             let seq = job.seq;
+            // Any completion of the outstanding render (applied or dropped below) frees the slot.
+            if self.outstanding_render == Some(seq) {
+                self.outstanding_render = None;
+            }
             if seq == self.latest_seq {
                 // A width-reflow re-render (a resize, not a selection change): its content replaces
                 // the current body, but scroll and search must survive — the user did not navigate.
@@ -3704,6 +3916,31 @@ impl Controller {
                 Err(mpsc::TryRecvError::Empty) => {}
             }
         }
+        // The watcher-triggered status (live refresh): apply it as a focus refresh would, then
+        // reflow or re-render the active preview. One more runs if a trigger arrived meanwhile.
+        if let Some(rx) = &self.bg_status_rx {
+            let landed = match rx.try_recv() {
+                Ok(bg) => Some(Some(bg)),
+                Err(mpsc::TryRecvError::Disconnected) => Some(None),
+                Err(mpsc::TryRecvError::Empty) => None,
+            };
+            if let Some(bg) = landed {
+                self.bg_status_rx = None;
+                if let Some(bg) = bg {
+                    self.tree.invalidate_compaction();
+                    self.apply_git_state(&bg.status, bg.changed);
+                    self.current_branch = bg.branch;
+                    self.after_bg_refresh();
+                    applied = true;
+                }
+                if std::mem::take(&mut self.bg_status_again) {
+                    self.request_bg_status();
+                }
+            }
+        }
+        // Last, after every result above is applied (including a line select one opened): send a
+        // held background reflow if nothing is in the way now.
+        self.try_bg_reflow();
         // A finished background probe replaces the whole notice state and drops the receiver.
         // A disconnected channel sent no replacement, so retain the last applied snapshot and stop
         // polling the dead receiver.

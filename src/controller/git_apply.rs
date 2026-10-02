@@ -84,10 +84,16 @@ impl Controller {
         self.drop_pending_status();
     }
 
-    /// Drop any pending re-root async status/changed-set fetch so a stale in-flight result
-    /// cannot later overwrite a freshly-recomputed synchronous git state in [`poll`]. Must be
-    /// called after every synchronous git-state recompute.
+    /// Drop any pending async status fetch, both re-root's and the watcher's, so a stale
+    /// in-flight result cannot later overwrite a freshly-recomputed synchronous git state in
+    /// [`poll`]. Must be called after every synchronous git-state recompute.
     pub(super) fn drop_pending_status(&mut self) {
         self.status_rx = None;
+        // A watcher refresh in flight is superseded by this fresher status, but the preview reflow
+        // it was going to trigger is still owed: an edit to the open file must not be lost.
+        if self.bg_status_rx.take().is_some() {
+            self.bg_reflow_pending = true;
+        }
+        self.bg_status_again = false;
     }
 }
