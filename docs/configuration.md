@@ -163,7 +163,8 @@ A line select or a mouse selection in progress holds the preview refresh until i
 `false`, the viewer refreshes when its pane regains focus and on `r`. If the watcher cannot start
 (for example, Linux's inotify watch limit on a very large repo), the viewer falls back to that
 silently. A file that a nested `.gitignore` re-includes with `!pattern` while the top-level rules
-ignore it waits for focus or `r`.
+ignore it waits for focus or `r`, and so does a change inside a symlinked directory: the watcher
+does not follow symlinks, as the tree does not.
 
 `confirm_discard` guards the one piece of state the viewer can lose. Annotations (`a` / `A`) are
 session-only, so both quitting (`q`) and switching worktree (`W`) discard them. By default either
