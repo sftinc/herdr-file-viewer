@@ -584,6 +584,30 @@ pub fn current_branch(repo_root: &Path) -> Option<String> {
     }
 }
 
+/// The absolute git dir of the repo containing `dir` and, in a linked worktree, the common git dir
+/// too (where the shared refs live). Empty outside a repo. The live-refresh watcher watches these
+/// when they lie outside the tree root. `--path-format=absolute` needs git 2.31 (the floor is 2.39).
+pub fn git_dirs(dir: &Path) -> Vec<PathBuf> {
+    let Some(out) = run_raw(
+        dir,
+        &[
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-dir",
+            "--git-common-dir",
+        ],
+    ) else {
+        return Vec::new();
+    };
+    let mut dirs: Vec<PathBuf> = out
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(PathBuf::from)
+        .collect();
+    dirs.dedup();
+    dirs
+}
+
 /// `HEAD` when it resolves, else git's empty-tree object so an unborn repo's first
 /// (staged) files still diff as additions instead of failing on `bad revision 'HEAD'`.
 fn head_or_empty_tree(repo_root: &Path) -> String {
