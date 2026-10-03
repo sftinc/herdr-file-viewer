@@ -3725,11 +3725,6 @@ impl Controller {
         }
     }
 
-    /// Dispatch a render of the current selection to the worker thread (AC-23) — never
-    /// blocking and doing **no git or rendering work on the input thread**: the worker reads
-    /// the diff and delegates to the external renderer. A directory or empty selection clears
-    /// the pane synchronously (no job). Every call bumps `latest_seq`, so any still-in-flight
-    /// render for the previous selection is superseded and dropped by [`poll`].
     /// An open add-annotation editor must not restore a line select whose numbers point into a
     /// document that is being, or has been, replaced.
     fn forget_editor_line_select(&mut self) {
@@ -3738,6 +3733,11 @@ impl Controller {
         }
     }
 
+    /// Dispatch a render of the current selection to the worker thread (AC-23) — never
+    /// blocking and doing **no git or rendering work on the input thread**: the worker reads
+    /// the diff and delegates to the external renderer. A directory or empty selection clears
+    /// the pane synchronously (no job). Every call bumps `latest_seq`, so any still-in-flight
+    /// render for the previous selection is superseded and dropped by [`poll`].
     fn dispatch_render(&mut self) {
         self.forget_editor_line_select();
         self.latest_seq += 1;
