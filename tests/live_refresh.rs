@@ -44,19 +44,25 @@ fn pass(gate: &Arc<Mutex<Option<Gate>>>) {
     }
 }
 
+/// One `watch` call: its root and git dirs.
+type WatchCall = (PathBuf, Vec<PathBuf>);
+
 /// A watcher the test drives: records every `watch` call and keeps the latest event sender. The
 /// gate holds a `watch` call open, as a slow inotify walk would.
 #[derive(Clone, Default)]
 struct FakeWatch {
-    calls: Arc<Mutex<Vec<Vec<PathBuf>>>>,
+    calls: Arc<Mutex<Vec<WatchCall>>>,
     tx: Arc<Mutex<Option<mpsc::Sender<WatchEvent>>>>,
     fail: bool,
     gate: Arc<Mutex<Option<Gate>>>,
 }
 impl WatchService for FakeWatch {
-    fn watch(&self, paths: &[PathBuf]) -> Option<WatchHandle> {
+    fn watch(&self, root: &Path, git_dirs: &[PathBuf], _is_git_repo: bool) -> Option<WatchHandle> {
         pass(&self.gate);
-        self.calls.lock().unwrap().push(paths.to_vec());
+        self.calls
+            .lock()
+            .unwrap()
+            .push((root.to_path_buf(), git_dirs.to_vec()));
         if self.fail {
             return None;
         }
@@ -499,8 +505,17 @@ fn re_root_replaces_the_watcher() {
     await_until(&mut r.ctrl, |c| c.watching()); // setup is off-thread
     let calls = r.watch.calls.lock().unwrap().clone();
     assert_eq!(calls.len(), 2, "one watch per root");
-    assert_eq!(calls[1][0], other.path().canonicalize().unwrap());
+    assert_eq!(calls[1].0, other.path().canonicalize().unwrap());
     assert!(r.ctrl.watching());
+}
+
+#[test]
+fn the_watcher_gets_the_canonical_root_and_every_git_dir_even_inside_the_root() {
+    let dir = TempDir::new();
+    common::init_repo_with_commit(dir.path());
+    let r = rig(dir.path(), true);
+    let calls = r.watch.calls.lock().unwrap().clone();
+    assert_eq!(calls, vec![(r.root.clone(), vec![r.root.join(".git")])]);
 }
 
 #[test]
