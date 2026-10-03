@@ -1493,8 +1493,11 @@ impl Controller {
         loop {
             match handle.rx.try_recv() {
                 Ok(WatchEvent::Rescan) => relevant = true,
+                // Once one event is relevant the rest only need draining: the filter stats each
+                // path, and a build can queue thousands.
+                Ok(WatchEvent::Paths(_)) if relevant => {}
                 Ok(WatchEvent::Paths(paths)) => {
-                    relevant |= self
+                    relevant = self
                         .watch_filter
                         .as_ref()
                         .is_some_and(|f| paths.iter().any(|p| f.relevant(p, self.show_ignored)));
