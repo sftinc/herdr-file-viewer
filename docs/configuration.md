@@ -48,8 +48,8 @@ config key and above the built-in default — `editor` (`$EDITOR`) and `update_c
 (`$HERDR_FILE_VIEWER_NO_UPDATE_CHECK`) — giving those two a `config > env > default` chain. Every
 other key (`markdown`, `diff`, `syntax`, `open`, `reveal`, `hide_dotfiles`, `show_ignored`,
 `compact_dirs`, `changed_file_view`, `baseline`, `confirm_discard`, `scroll_lines`, `tree_width`,
-`tree_position`, `tree_max_cols`, `open_direction`, `preview_max_lines`, `preview_max_kib`, `watch`) has no
-applicable environment variable; for those it's `config > default` only.
+`tree_position`, `tree_max_cols`, `open_direction`, `preview_max_lines`, `preview_max_kib`,
+`watch`) has no applicable environment variable; for those it's `config > default` only.
 
 ## Keys
 
@@ -154,7 +154,7 @@ tree has not opened, so a compacted tree remembers which directories fold instea
 every frame. Listings themselves are still read live — a new file appears as immediately as it
 always did — but the *span* of a folded row can lag. If a file created outside the viewer is what
 ends a chain, the row keeps its old span until the viewer re-checks, which it does on launch, `r`,
-returning from the editor, switching baseline, and regaining focus.
+returning from the editor, switching baseline, regaining focus, and on a live refresh (`watch`).
 
 `watch` (default `true`) keeps the viewer current while its pane is unfocused: it watches the root,
 and when files change, or you stage, commit or check out, it refreshes the tree, git markers and the
