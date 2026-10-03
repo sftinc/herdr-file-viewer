@@ -187,14 +187,22 @@ fn the_live_watcher_reports_a_created_file() {
     }
 }
 
+/// `rel`'s `/`-separated parts joined onto `root` one by one, so the path uses the native
+/// separator (a `"a/b"` join on a canonical Windows root is a different path).
+fn at(root: &Path, rel: &str) -> PathBuf {
+    rel.split('/')
+        .filter(|c| !c.is_empty())
+        .fold(root.to_path_buf(), |p, c| p.join(c))
+}
+
 /// A repo whose tree shows `src/nested` and hides `node_modules/` and `target/`.
 fn repo_with_ignored_dirs() -> (TempDir, PathBuf, Vec<PathBuf>) {
     let dir = TempDir::new();
     let root = canon(dir.path());
     init_repo_with_commit(&root);
-    fs::write(root.join(".gitignore"), "node_modules/\ntarget/\n").unwrap();
+    fs::write(at(&root, ".gitignore"), "node_modules/\ntarget/\n").unwrap();
     for d in ["node_modules/a/b", "target/x", "src/nested"] {
-        fs::create_dir_all(root.join(d)).unwrap();
+        fs::create_dir_all(at(&root, d)).unwrap();
     }
     let git_dirs = herdr_file_viewer::git::git_dirs(&root)
         .iter()
@@ -204,7 +212,7 @@ fn repo_with_ignored_dirs() -> (TempDir, PathBuf, Vec<PathBuf>) {
 }
 
 #[test]
-fn linux_watches_only_the_folders_the_tree_shows_and_the_git_state() {
+fn only_the_folders_the_tree_shows_and_the_git_state_are_watched() {
     use herdr_file_viewer::watch::watch_dirs;
     let (_dir, root, git_dirs) = repo_with_ignored_dirs();
     let dirs = watch_dirs(&root, &git_dirs, true);
@@ -216,7 +224,7 @@ fn linux_watches_only_the_folders_the_tree_shows_and_the_git_state() {
         ".git/refs",
         ".git/refs/heads",
     ] {
-        assert!(dirs.contains(&root.join(present)), "{present:?} is watched");
+        assert!(dirs.contains(&at(&root, present)), "{present:?} is watched");
     }
     for absent in [
         "node_modules",
@@ -227,7 +235,7 @@ fn linux_watches_only_the_folders_the_tree_shows_and_the_git_state() {
         ".git/info",
     ] {
         assert!(
-            !dirs.contains(&root.join(absent)),
+            !dirs.contains(&at(&root, absent)),
             "{absent:?} is not watched"
         );
     }
@@ -237,25 +245,25 @@ fn linux_watches_only_the_folders_the_tree_shows_and_the_git_state() {
 fn a_new_folder_is_watched_with_its_visible_subfolders_unless_ignored() {
     use herdr_file_viewer::watch::new_dir_watch_dirs;
     let (_dir, root, git_dirs) = repo_with_ignored_dirs();
-    fs::create_dir_all(root.join("lib/inner")).unwrap();
-    fs::create_dir_all(root.join("lib/target/deep")).unwrap();
-    fs::create_dir_all(root.join(".git/refs/heads/feat/x")).unwrap();
+    fs::create_dir_all(at(&root, "lib/inner")).unwrap();
+    fs::create_dir_all(at(&root, "lib/target/deep")).unwrap();
+    fs::create_dir_all(at(&root, ".git/refs/heads/feat/x")).unwrap();
     assert_eq!(
-        new_dir_watch_dirs(&root.join("lib"), &root, &git_dirs, true),
-        vec![root.join("lib"), root.join("lib/inner")]
+        new_dir_watch_dirs(&at(&root, "lib"), &root, &git_dirs, true),
+        vec![at(&root, "lib"), at(&root, "lib/inner")]
     );
     assert!(
-        new_dir_watch_dirs(&root.join("lib/target"), &root, &git_dirs, true).is_empty(),
+        new_dir_watch_dirs(&at(&root, "lib/target"), &root, &git_dirs, true).is_empty(),
         "an ignored new folder is not watched"
     );
     assert_eq!(
-        new_dir_watch_dirs(&root.join(".git/refs/heads/feat"), &root, &git_dirs, true),
+        new_dir_watch_dirs(&at(&root, ".git/refs/heads/feat"), &root, &git_dirs, true),
         vec![
-            root.join(".git/refs/heads/feat"),
-            root.join(".git/refs/heads/feat/x")
+            at(&root, ".git/refs/heads/feat"),
+            at(&root, ".git/refs/heads/feat/x")
         ]
     );
-    assert!(new_dir_watch_dirs(&root.join(".git/objects"), &root, &git_dirs, true).is_empty());
+    assert!(new_dir_watch_dirs(&at(&root, ".git/objects"), &root, &git_dirs, true).is_empty());
 }
 
 #[test]

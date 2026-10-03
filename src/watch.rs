@@ -299,7 +299,7 @@ impl WatchService for NotifyWatch {
 impl WatchService for NotifyWatch {
     fn watch(&self, root: &Path, git_dirs: &[PathBuf], is_git_repo: bool) -> Option<WatchHandle> {
         use notify::Watcher;
-        use notify::event::{CreateKind, EventKind, ModifyKind};
+        use notify::event::{CreateKind, EventKind, ModifyKind, RenameMode};
         use std::sync::{Arc, Mutex};
         let dirs = watch_dirs(root, git_dirs, is_git_repo);
         if !within_budget(dirs.len(), inotify_watch_limit()) {
@@ -312,7 +312,8 @@ impl WatchService for NotifyWatch {
             if let Ok(ev) = &res
                 && matches!(
                     ev.kind,
-                    EventKind::Create(CreateKind::Folder) | EventKind::Modify(ModifyKind::Name(_))
+                    EventKind::Create(CreateKind::Folder)
+                        | EventKind::Modify(ModifyKind::Name(RenameMode::To))
                 )
             {
                 for path in &ev.paths {
@@ -325,9 +326,11 @@ impl WatchService for NotifyWatch {
         };
         let mut watcher = notify::RecommendedWatcher::new(handler, config()).ok()?;
         for dir in &dirs {
-            watcher
-                .watch(dir, notify::RecursiveMode::NonRecursive)
-                .ok()?;
+            if let Err(err) = watcher.watch(dir, notify::RecursiveMode::NonRecursive)
+                && !vanished(&err, dir, root)
+            {
+                return None;
+            }
         }
         // The guard holds the only strong reference. Dropping the handle drops the watcher, which
         // drops the callback and its `new_dir_tx`, which ends the helper's loop: no cycle.
@@ -360,6 +363,14 @@ impl WatchService for NotifyWatch {
     }
 }
 
+/// Whether a failed watch on `dir` only means it was deleted since the walk: skip it, rather than
+/// turn live refresh off for the session. Any other error (the watch limit, say), or a missing
+/// root, still refuses.
+#[cfg(any(target_os = "linux", test))]
+fn vanished(err: &notify::Error, dir: &Path, root: &Path) -> bool {
+    matches!(err.kind, notify::ErrorKind::PathNotFound) && dir != root
+}
+
 /// The per-user inotify watch limit, or `None` when it cannot be read.
 #[cfg(target_os = "linux")]
 fn inotify_watch_limit() -> Option<usize> {
@@ -372,7 +383,18 @@ fn inotify_watch_limit() -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::changes_content;
+    use super::{changes_content, vanished};
+    use std::path::Path;
+
+    #[test]
+    fn only_a_vanished_folder_other_than_the_root_is_skipped() {
+        let (root, dir) = (Path::new("/r"), Path::new("/r/gone"));
+        let not_found = notify::Error::path_not_found();
+        assert!(vanished(&not_found, dir, root));
+        assert!(!vanished(&not_found, root, root), "a missing root refuses");
+        let limit = notify::Error::new(notify::ErrorKind::MaxFilesWatch);
+        assert!(!vanished(&limit, dir, root), "the watch limit refuses");
+    }
     use notify::EventKind::{Access, Create, Modify, Remove};
     use notify::event::{AccessKind, AccessMode, CreateKind, DataChange, ModifyKind, RemoveKind};
 
