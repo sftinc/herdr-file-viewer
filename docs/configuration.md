@@ -47,9 +47,10 @@ A config key always wins. Only two keys also have an environment-variable fallba
 config key and above the built-in default — `editor` (`$EDITOR`) and `update_check`
 (`$HERDR_FILE_VIEWER_NO_UPDATE_CHECK`) — giving those two a `config > env > default` chain. Every
 other key (`markdown`, `diff`, `syntax`, `open`, `reveal`, `hide_dotfiles`, `show_ignored`,
-`compact_dirs`, `changed_file_view`, `baseline`, `confirm_discard`, `scroll_lines`, `tree_width`,
-`tree_position`, `tree_max_cols`, `open_direction`, `preview_max_lines`, `preview_max_kib`,
-`watch`) has no applicable environment variable; for those it's `config > default` only.
+`compact_dirs`, `expand_changed`, `changed_file_view`, `baseline`, `confirm_discard`, `scroll_lines`,
+`tree_width`, `tree_position`, `tree_max_cols`, `open_direction`, `preview_max_lines`,
+`preview_max_kib`, `watch`) has no applicable environment variable; for those it's `config > default`
+only.
 
 ## Keys
 
@@ -69,6 +70,7 @@ hide_dotfiles = false       # true to hide dotfiles at startup (the `.` key stil
 show_ignored = false        # true to show gitignored files at startup (the `i` key still toggles)
 compact_dirs = false        # true to draw a chain of single-child dirs as ONE row (src/main/java)
 watch = true                # false to refresh only on focus and r
+expand_changed = false      # true to open the folders of files with uncommitted changes
 changed_file_view = "diff"  # changed files start in "diff", or use normal "content" by file type
 baseline = "base"           # force startup diff baseline: "base" or "head" (omit for context-smart default)
 update_check = true         # false disables all remote requests and their display
@@ -148,6 +150,13 @@ It is off by default because the trade depends on the repo. On a deep Java/Maven
 layout — where the per-segment tree spends most of a narrow column on indentation and truncates the
 file names that matter — it wins outright. On a shallow repo it mostly costs you the 1:1 "one row is
 one directory" reading of the tree. Turn it on if your paths are deeper than your pane is wide.
+
+`expand_changed` opens the folders above every file with **uncommitted changes** (the working-tree
+status that `d` shows, not the `b` baseline), so new work is on screen without expanding anything by
+hand. It acts at launch, after a worktree switch, and whenever a refresh (`r`, regaining focus)
+finds a file that was not changed before. It only opens folders: it never moves the cursor, changes
+a filter, or collapses anything. A folder you collapse stays closed until a *different* file inside
+it changes. Off by default.
 
 One small behavior difference: deciding whether a row folds means peeking inside directories the
 tree has not opened, so a compacted tree remembers which directories fold instead of re-checking

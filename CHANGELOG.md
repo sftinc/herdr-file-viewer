@@ -9,6 +9,7 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 - Live refresh: the tree, git markers and the open preview update on their own when files or git state change, even while the viewer pane is unfocused. Your selection, scroll, search and view choice are kept. `watch = false` turns it off. → [usage](docs/usage.md#git-awareness) · [configuration](docs/configuration.md)
+- `expand_changed`: open the tree's folders to files with uncommitted changes, at launch and whenever a refresh finds a newly changed file. A folder you collapse stays closed until a different file inside it changes. Off by default → [configuration](docs/configuration.md) · [usage](docs/usage.md#git-awareness)
 
 ### Fixed
 - The selected file stays selected when a file appears or disappears above it. A focus refresh or `r` used to move the highlight to a different file.
