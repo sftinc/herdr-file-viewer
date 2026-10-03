@@ -293,6 +293,7 @@ pub fn settings_text(
          show_ignored      = {show_ignored}\n\
          compact_dirs      = {compact_dirs}\n\
          watch             = {watch}\n\
+         expand_changed    = {expand_changed}\n\
          changed_file_view = {changed_file_view}\n\
          baseline          = {baseline}\n\
          update_check      = {update_check}\n\
@@ -310,6 +311,7 @@ pub fn settings_text(
         show_ignored = eff.show_ignored,
         compact_dirs = eff.compact_dirs,
         watch = eff.watch,
+        expand_changed = eff.expand_changed,
         changed_file_view = eff.changed_file_view.label(),
         baseline = baseline,
         update_check = update_check,
@@ -828,6 +830,7 @@ mod tests {
             show_ignored: true,
             compact_dirs: true,
             watch: true,
+            expand_changed: true,
             changed_file_view: crate::view_policy::ChangedFileView::Content,
             baseline: Some(crate::git::Baseline::Base),
             update_check: false,
@@ -872,6 +875,7 @@ mod tests {
             "show_ignored",
             "compact_dirs",
             "watch",
+            "expand_changed",
             "changed_file_view",
             "baseline",
             "update_check",
@@ -954,6 +958,7 @@ mod tests {
             "hide_dotfiles     = true",
             "show_ignored      = true",
             "compact_dirs      = true",
+            "expand_changed    = true",
             "changed_file_view = content",
             "baseline          = base",
             "update_check      = off",
@@ -1034,6 +1039,7 @@ mod tests {
             "hide_dotfiles     = false",
             "show_ignored      = false",
             "compact_dirs      = false",
+            "expand_changed    = false",
             "changed_file_view = diff",
             "baseline          = base",
             "update_check      = on",

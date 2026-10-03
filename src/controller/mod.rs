@@ -769,6 +769,8 @@ pub struct Controller {
     /// default `false`). A session preference carried across a re-root (like `show_ignored` /
     /// `hide_hidden`), so the new root's fresh tree is rebuilt with the same shape.
     compact_dirs: bool,
+    /// Whether a newly changed file opens the folders above it (config `expand_changed`).
+    expand_changed: bool,
     changed_only: bool,
     /// Which command a Diff/FullDiff render delegates to (`D`, cycling Delta →
     /// DeltaSideBySide → Raw). Carried
@@ -1086,6 +1088,7 @@ impl Controller {
             // Defaults ON, matching the resolver: a Controller built without config still guards.
             confirm_discard: true,
             compact_dirs: false,
+            expand_changed: false,
             tree_hscroll: 0,
             changed_only: false,
             diff_render_mode: DiffRenderMode::default(),
@@ -1888,6 +1891,17 @@ impl Controller {
     pub fn apply_compact_dirs(&mut self, on: bool) {
         self.compact_dirs = on;
         self.tree.set_compact_dirs(on);
+    }
+
+    /// Apply the config-driven `expand_changed` switch. Called once by `app::run` right after
+    /// construction, so turning it on opens the folders of every file the launch status already
+    /// lists; from then on each status that lands opens the folders of its newly changed files.
+    pub fn apply_expand_changed(&mut self, on: bool) {
+        self.expand_changed = on;
+        if on {
+            let status = self.git_status.clone();
+            self.expand_new_changes(&status, &BTreeMap::new());
+        }
     }
 
     /// Apply a launch **open target** once at startup: resolve `path` under the tree **root**,
