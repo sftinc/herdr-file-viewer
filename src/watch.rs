@@ -368,7 +368,13 @@ impl WatchService for NotifyWatch {
 /// root, still refuses.
 #[cfg(any(target_os = "linux", test))]
 fn vanished(err: &notify::Error, dir: &Path, root: &Path) -> bool {
-    matches!(err.kind, notify::ErrorKind::PathNotFound) && dir != root
+    let not_found = match &err.kind {
+        notify::ErrorKind::PathNotFound => true,
+        // notify stats a folder right after watching it, so one deleted in between is an io error.
+        notify::ErrorKind::Io(e) => e.kind() == std::io::ErrorKind::NotFound,
+        _ => false,
+    };
+    not_found && dir != root
 }
 
 /// The per-user inotify watch limit, or `None` when it cannot be read.
@@ -392,6 +398,14 @@ mod tests {
         let not_found = notify::Error::path_not_found();
         assert!(vanished(&not_found, dir, root));
         assert!(!vanished(&not_found, root, root), "a missing root refuses");
+        let io_not_found = notify::Error::io(std::io::ErrorKind::NotFound.into());
+        assert!(vanished(&io_not_found, dir, root));
+        assert!(
+            !vanished(&io_not_found, root, root),
+            "a missing root refuses"
+        );
+        let io_other = notify::Error::io(std::io::ErrorKind::PermissionDenied.into());
+        assert!(!vanished(&io_other, dir, root), "another io error refuses");
         let limit = notify::Error::new(notify::ErrorKind::MaxFilesWatch);
         assert!(!vanished(&limit, dir, root), "the watch limit refuses");
     }
