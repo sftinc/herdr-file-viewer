@@ -173,7 +173,7 @@ fn the_live_watcher_reports_a_created_file() {
     let dir = TempDir::new();
     let root = canon(dir.path());
     let handle = NotifyWatch
-        .watch(std::slice::from_ref(&root))
+        .watch(&root, &[], false)
         .expect("the watcher starts");
     fs::write(root.join("new.txt"), "x").unwrap();
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -183,6 +183,150 @@ fn the_live_watcher_reports_a_created_file() {
             Ok(WatchEvent::Paths(paths)) if paths.iter().any(|p| p.ends_with("new.txt")) => break,
             Ok(_) => continue,
             Err(e) => panic!("no event for new.txt: {e}"),
+        }
+    }
+}
+
+/// A repo whose tree shows `src/nested` and hides `node_modules/` and `target/`.
+fn repo_with_ignored_dirs() -> (TempDir, PathBuf, Vec<PathBuf>) {
+    let dir = TempDir::new();
+    let root = canon(dir.path());
+    init_repo_with_commit(&root);
+    fs::write(root.join(".gitignore"), "node_modules/\ntarget/\n").unwrap();
+    for d in ["node_modules/a/b", "target/x", "src/nested"] {
+        fs::create_dir_all(root.join(d)).unwrap();
+    }
+    let git_dirs = herdr_file_viewer::git::git_dirs(&root)
+        .iter()
+        .map(|d| canon(d))
+        .collect();
+    (dir, root, git_dirs)
+}
+
+#[test]
+fn linux_watches_only_the_folders_the_tree_shows_and_the_git_state() {
+    use herdr_file_viewer::watch::watch_dirs;
+    let (_dir, root, git_dirs) = repo_with_ignored_dirs();
+    let dirs = watch_dirs(&root, &git_dirs, true);
+    for present in [
+        "",
+        "src",
+        "src/nested",
+        ".git",
+        ".git/refs",
+        ".git/refs/heads",
+    ] {
+        assert!(dirs.contains(&root.join(present)), "{present:?} is watched");
+    }
+    for absent in [
+        "node_modules",
+        "node_modules/a/b",
+        "target",
+        "target/x",
+        ".git/objects",
+        ".git/info",
+    ] {
+        assert!(
+            !dirs.contains(&root.join(absent)),
+            "{absent:?} is not watched"
+        );
+    }
+}
+
+#[test]
+fn a_new_folder_is_watched_with_its_visible_subfolders_unless_ignored() {
+    use herdr_file_viewer::watch::new_dir_watch_dirs;
+    let (_dir, root, git_dirs) = repo_with_ignored_dirs();
+    fs::create_dir_all(root.join("lib/inner")).unwrap();
+    fs::create_dir_all(root.join("lib/target/deep")).unwrap();
+    fs::create_dir_all(root.join(".git/refs/heads/feat/x")).unwrap();
+    assert_eq!(
+        new_dir_watch_dirs(&root.join("lib"), &root, &git_dirs, true),
+        vec![root.join("lib"), root.join("lib/inner")]
+    );
+    assert!(
+        new_dir_watch_dirs(&root.join("lib/target"), &root, &git_dirs, true).is_empty(),
+        "an ignored new folder is not watched"
+    );
+    assert_eq!(
+        new_dir_watch_dirs(&root.join(".git/refs/heads/feat"), &root, &git_dirs, true),
+        vec![
+            root.join(".git/refs/heads/feat"),
+            root.join(".git/refs/heads/feat/x")
+        ]
+    );
+    assert!(new_dir_watch_dirs(&root.join(".git/objects"), &root, &git_dirs, true).is_empty());
+}
+
+#[test]
+fn the_watch_budget_is_a_quarter_of_the_limit() {
+    use herdr_file_viewer::watch::within_budget;
+    assert!(within_budget(2048, Some(8192)), "exactly a quarter passes");
+    assert!(!within_budget(2049, Some(8192)), "one over fails");
+    assert!(
+        within_budget(1_000_000, None),
+        "an unreadable limit never refuses"
+    );
+}
+
+/// Wait (bounded) for the first event naming a path that ends with `name`, returning every event
+/// that arrived before it.
+#[cfg(target_os = "linux")]
+fn events_until(
+    handle: &herdr_file_viewer::watch::WatchHandle,
+    name: &str,
+    rescan_counts: bool,
+) -> Vec<herdr_file_viewer::watch::WatchEvent> {
+    use herdr_file_viewer::watch::WatchEvent;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut before = Vec::new();
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match handle.rx.recv_timeout(left) {
+            Ok(WatchEvent::Paths(paths)) if paths.iter().any(|p| p.ends_with(name)) => {
+                return before;
+            }
+            Ok(WatchEvent::Rescan) if rescan_counts => return before,
+            Ok(ev) => before.push(ev),
+            Err(e) => panic!("no event for {name}: {e}"),
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_a_file_in_a_folder_created_after_start_is_reported() {
+    use herdr_file_viewer::watch::{NotifyWatch, WatchService};
+    let (_dir, root, git_dirs) = repo_with_ignored_dirs();
+    let handle = NotifyWatch
+        .watch(&root, &git_dirs, true)
+        .expect("the watcher starts");
+    fs::create_dir(root.join("fresh")).unwrap();
+    fs::write(root.join("fresh/new.txt"), "x").unwrap();
+    // Either the file's own event (its folder's watch landed first) or the Rescan sent after the
+    // watch was added (which covers a file created in the gap).
+    events_until(&handle, "new.txt", true);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_a_file_under_an_ignored_folder_produces_no_event() {
+    use herdr_file_viewer::watch::{NotifyWatch, WatchEvent, WatchService};
+    let (_dir, root, git_dirs) = repo_with_ignored_dirs();
+    let handle = NotifyWatch
+        .watch(&root, &git_dirs, true)
+        .expect("the watcher starts");
+    // Proven by order, not by sleeping: inotify's queue is FIFO per instance, so an event for the
+    // ignored file would arrive before the marker's.
+    fs::write(root.join("target/x/ignored.o"), "x").unwrap();
+    fs::write(root.join("src/marker.txt"), "x").unwrap();
+    let before = events_until(&handle, "marker.txt", false);
+    for ev in before {
+        if let WatchEvent::Paths(paths) = ev {
+            assert!(
+                !paths.iter().any(|p| p.ends_with("ignored.o")),
+                "an ignored folder is not watched: {paths:?}"
+            );
         }
     }
 }

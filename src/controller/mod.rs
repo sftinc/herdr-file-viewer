@@ -1438,11 +1438,11 @@ impl Controller {
         self.bg_status_rx.is_some()
     }
 
-    /// (Re)start the watch for the current root: the root, plus the git dir and common git dir
-    /// when they lie outside it (a linked worktree). Setup runs off the UI thread, because
-    /// inotify walks the whole root to add its watches and input must never block (AC-17); `poll`
-    /// installs the result. A watcher that cannot start leaves `watch` empty, and the viewer
-    /// refreshes on focus and `r` as before, with no banner.
+    /// (Re)start the watch for the current root: the canonical root and its git dir and common
+    /// git dir. Setup runs off the UI thread, because on Linux it walks the root to add its
+    /// watches and input must never block (AC-17); `poll` installs the result. A watcher that
+    /// cannot start leaves `watch` empty, and the viewer refreshes on focus and `r` as before,
+    /// with no banner.
     fn start_watch(&mut self) {
         self.watch = None;
         self.watch_filter = None;
@@ -1464,15 +1464,8 @@ impl Controller {
                     Vec::new()
                 };
                 let filter = EventFilter::new(&root, &git_dirs);
-                let mut paths = vec![filter.root().to_path_buf()];
-                paths.extend(
-                    filter
-                        .git_dirs()
-                        .iter()
-                        .filter(|d| !d.starts_with(filter.root()))
-                        .cloned(),
-                );
-                (service.watch(&paths), filter)
+                let handle = service.watch(filter.root(), filter.git_dirs(), is_git_repo);
+                (handle, filter)
             }));
             if let Ok(result) = computed {
                 let _ = tx.send(result); // the receiver is gone if a re-root superseded this

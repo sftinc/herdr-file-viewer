@@ -161,11 +161,14 @@ returning from the editor, switching baseline, regaining focus, and on a live re
 and when files change, or you stage, commit or check out, it refreshes the tree, git markers and the
 open preview within about a second, keeping your selection, scroll position, search and view choice.
 A line select or a mouse selection in progress holds the preview refresh until it finishes. With
-`false`, the viewer refreshes when its pane regains focus and on `r`. If the watcher cannot start
-(for example, Linux's inotify watch limit on a very large repo), the viewer falls back to that
-silently. A file that a nested `.gitignore` re-includes with `!pattern` while the top-level rules
-ignore it waits for focus or `r`, and so does a change inside a symlinked directory: the watcher
-does not follow symlinks, as the tree does not.
+`false`, the viewer refreshes when its pane regains focus and on `r`. If the watcher cannot start,
+the viewer falls back to that silently. On Linux, where inotify needs one watch per folder from a
+limit every program shares, each viewer watches only the folders the tree shows (not ignored ones
+like `node_modules/` or `target/`), and falls back to focus refresh if that would take more than a
+quarter of the system's inotify watch limit. So on Linux, with show-ignored (`i`) on, files inside
+ignored folders refresh on focus or `r`, not live. A file that a nested `.gitignore` re-includes
+with `!pattern` while the top-level rules ignore it waits for focus or `r`, and so does a change
+inside a symlinked directory: the watcher does not follow symlinks, as the tree does not.
 
 `confirm_discard` guards the one piece of state the viewer can lose. Annotations (`a` / `A`) are
 session-only, so both quitting (`q`) and switching worktree (`W`) discard them. By default either
