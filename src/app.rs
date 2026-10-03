@@ -127,6 +127,9 @@ pub fn run(open_flag: Option<String>) -> io::Result<()> {
     // Apply the config-driven tree shape (`compact_dirs`): fold a chain of single-child
     // directories into one row. A startup setting — there is no runtime toggle for it.
     controller.apply_compact_dirs(eff.compact_dirs);
+    // Apply the config-driven `expand_changed`: open the folders holding uncommitted changes now,
+    // and those of each newly changed file as refreshes land.
+    controller.apply_expand_changed(eff.expand_changed);
     // Apply the config-driven quit guard (`confirm_discard`): whether quitting with
     // session annotations held confirms first or discards them immediately.
     controller.apply_confirm_discard(eff.confirm_discard);

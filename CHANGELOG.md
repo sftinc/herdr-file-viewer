@@ -7,6 +7,9 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- `expand_changed`: open the tree's folders to files with uncommitted changes, at launch and whenever a refresh finds a newly changed file. A folder you collapse stays closed until a different file inside it changes. Off by default → [configuration](docs/configuration.md) · [usage](docs/usage.md#git-awareness)
+
 ## [1.17.0] - 2026-09-16
 
 ### Added
