@@ -59,7 +59,12 @@ pub fn current() -> Version {
     // The package version is always a valid triple (CI/clippy would reject otherwise), so this
     // parse cannot fail in a real build; fall back to 0.0.0 rather than panic, keeping the
     // "never crash" invariant even for a hand-mangled version string.
-    Version::parse(env!("CARGO_PKG_VERSION")).unwrap_or(Version {
+    // A fork ships `X.Y.Z-<fork>.N`: compare as the upstream release it is based on.
+    let numeric = env!("CARGO_PKG_VERSION")
+        .split('-')
+        .next()
+        .unwrap_or_default();
+    Version::parse(numeric).unwrap_or(Version {
         major: 0,
         minor: 0,
         patch: 0,
@@ -73,6 +78,19 @@ pub fn newer_than_current(latest: Version) -> Option<Version> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn current_version_ignores_a_fork_suffix() {
+        // The fork ships `X.Y.Z-sftinc.N`; the update check must still know which release it is.
+        assert_ne!(
+            current(),
+            Version {
+                major: 0,
+                minor: 0,
+                patch: 0
+            }
+        );
+    }
+
     use super::*;
 
     #[test]
