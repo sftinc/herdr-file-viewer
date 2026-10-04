@@ -289,7 +289,12 @@ pub fn render(
 
     // Content modes: binary and unavailable paths show placeholders, never raw bytes (AC-12).
     let (content, base_notice) = match prepared {
-        Prepared::Binary => return (Text::raw("[binary file: preview not shown]"), None),
+        Prepared::Binary => {
+            return (
+                Text::raw("[binary file: press Enter or O to open in the default app]"),
+                None,
+            );
+        }
         Prepared::Unavailable { reason } => return (Text::raw(reason.label()), None),
         Prepared::Full { text } => (text.as_str(), None),
         Prepared::Truncated { text, notice } => (text.as_str(), Some(notice.clone())),
@@ -1203,7 +1208,7 @@ mod tests {
         );
         assert_eq!(
             binary.lines[0].spans[0].content,
-            "[binary file: preview not shown]"
+            "[binary file: press Enter or O to open in the default app]"
         );
         assert_eq!(notice, None);
     }

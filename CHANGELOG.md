@@ -7,6 +7,9 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- `Enter` or a double-click on a binary file the viewer can't show (an image, a PDF, an archive) opens it in the OS default app, like `O`, instead of zooming into the placeholder → [keys](docs/keys.md) · [usage](docs/usage.md)
+
 ## [1.17.0] - 2026-09-16
 
 ### Added
