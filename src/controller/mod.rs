@@ -2861,11 +2861,19 @@ impl Controller {
     /// a file opens in **zoom mode** — the content pane fills the frame (focused), so the file
     /// is read full-screen. Read-only: opening in an external editor stays on `e`
     /// ([`Intent::OpenInEditor`]). The content was already rendered when the file was selected,
-    /// so this only flips the layout/focus — no re-render is dispatched.
+    /// so this only flips the layout/focus — no re-render is dispatched. A binary file (an image,
+    /// a PDF, …) has nothing to read in zoom mode, so it goes to the OS default app instead: the
+    /// same read-only hand-off as `O` ([`Intent::OpenWithApp`]).
     fn activate(&mut self) -> Effects {
         let Some(node) = self.tree.selected() else {
             return Effects::noop();
         };
+        if node.kind == NodeKind::File
+            && crate::render::classify(&self.root, &node.path, Default::default())
+                == crate::render::Prepared::Binary
+        {
+            return self.hand_off_to_opener(false);
+        }
         match node.kind {
             NodeKind::Dir => {
                 if node.expanded {
@@ -2906,10 +2914,11 @@ impl Controller {
             self.focus = Focus::Tree;
             return Effects::redraw();
         }
-        // Not full-screen → open the selection; a file additionally goes full-screen.
+        // Not full-screen → open the selection; a file additionally goes full-screen, unless it
+        // was a binary file that `activate` handed to the default app instead of zooming.
         let is_file = matches!(self.tree.selected().map(|n| n.kind), Some(NodeKind::File));
         let effects = self.activate();
-        if is_file {
+        if is_file && self.zoomed {
             self.host_zoom(true);
         }
         effects
