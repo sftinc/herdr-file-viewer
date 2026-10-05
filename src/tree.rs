@@ -108,6 +108,11 @@ fn file_row(rows: &[Node], path: &Path) -> Option<usize> {
         .position(|n| n.path == path && n.kind == NodeKind::File)
 }
 
+/// The selection anchor for row `idx` of `rows`: its path and kind, `None` past the end.
+fn anchor_of(rows: &[Node], idx: usize) -> Option<(PathBuf, NodeKind)> {
+    rows.get(idx).map(|n| (n.path.clone(), n.kind))
+}
+
 /// A directory's **foldability**: its sole visible child directory, when that single subdirectory
 /// is the only entry it has. `None` when it holds a file, a second entry, or nothing — each of
 /// which ends a chain. This, not the directory's contents, is all compaction needs to know.
@@ -147,10 +152,12 @@ pub struct TreeModel {
     /// selection is `anchor`, and this is the row the cursor lands on when `anchor` disappears
     /// (deleted, renamed, filtered out). A `Cell` because reads re-derive it.
     cursor: Cell<usize>,
-    /// The selected path. The row is re-derived from it on every listing, so a file appearing
-    /// above the selection no longer moves the highlight to a different file. `None` until the
-    /// first read, and whenever the tree is empty.
-    anchor: RefCell<Option<PathBuf>>,
+    /// The selected path and its row kind. The row is re-derived from it on every listing, so a
+    /// file appearing above the selection no longer moves the highlight to a different file. The
+    /// kind is part of it because changed-only mode can list one path twice, as a directory and as
+    /// the deleted file it replaced (see [`file_row`]). `None` until the first read, and whenever
+    /// the tree is empty.
+    anchor: RefCell<Option<(PathBuf, NodeKind)>>,
     show_ignored: bool,
     hide_hidden: bool,
     /// Whether `root` is itself a git repository — bounds the ancestor `.gitignore` search at
@@ -280,36 +287,31 @@ impl TreeModel {
         self.markers = status.clone();
     }
 
+    /// The selected row index. Walks the tree (and re-derives the selection from it), so a caller
+    /// that already holds a listing uses [`cursor_in`](Self::cursor_in) instead.
     pub fn cursor(&self) -> usize {
         self.cursor_in(&self.visible_nodes())
     }
 
     /// The selected row in `rows`, a listing just taken from [`visible_nodes`](Self::visible_nodes):
-    /// the anchored path's row while it is still listed, else the last row index clamped to the
-    /// listing, whose path then becomes the selection. Takes the listing so a caller that already
+    /// the anchored row (same path and kind) while it is still listed, else the last row index
+    /// clamped to the listing, which then becomes the selection. Takes the listing so a caller that already
     /// walked the tree (the per-frame `view_state`) does not walk it twice.
     pub fn cursor_in(&self, rows: &[Node]) -> usize {
-        // Prefer the remembered row when it still holds the anchored path: changed-only mode can
-        // list one path twice (a directory row and a file row), and a path search alone would
-        // always land on the first.
-        let anchored = self.anchor.borrow().as_ref().and_then(|path| {
-            let here = self.cursor.get();
-            if rows.get(here).is_some_and(|n| &n.path == path) {
-                Some(here)
-            } else {
-                rows.iter().position(|n| &n.path == path)
-            }
-        });
+        let anchored =
+            self.anchor.borrow().as_ref().and_then(|(path, kind)| {
+                rows.iter().position(|n| &n.path == path && n.kind == *kind)
+            });
         let idx = anchored.unwrap_or_else(|| self.cursor.get().min(rows.len().saturating_sub(1)));
         self.cursor.set(idx);
-        *self.anchor.borrow_mut() = rows.get(idx).map(|n| n.path.clone());
+        *self.anchor.borrow_mut() = anchor_of(rows, idx);
         idx
     }
 
     /// Select row `idx` of `rows` (a fresh listing): the one way a cursor move is stored.
     fn place(&mut self, rows: &[Node], idx: usize) {
         self.cursor.set(idx);
-        *self.anchor.get_mut() = rows.get(idx).map(|n| n.path.clone());
+        *self.anchor.get_mut() = anchor_of(rows, idx);
     }
 
     /// Whether the changed-only filter is currently active on the tree. Exposed so the
