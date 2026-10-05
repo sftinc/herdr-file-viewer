@@ -363,3 +363,45 @@ fn reveal_open_uses_only_the_injected_opener_seam() {
         "AC-13: the reveal hand-off reached only the injected seam"
     );
 }
+
+#[test]
+fn activate_on_a_binary_file_opens_it_with_the_default_app_instead_of_zooming() {
+    // Enter / double-click on a file the viewer cannot preview (a NUL byte → binary, e.g. an
+    // image) hands it to the OS default app, the same hand-off as `O`, and does not zoom into the
+    // useless placeholder.
+    let dir = clean_repo_fixture();
+    std::fs::write(dir.path().join("pic.png"), b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR").unwrap();
+    let mut ctrl = controller_over_repo(dir.path());
+    let (opener, log) = FakeOpener::new(OutcomeKind::Launched);
+    ctrl.set_opener(Box::new(opener));
+
+    let file = select_by_name(&mut ctrl, "pic.png");
+    ctrl.handle(Intent::Activate);
+
+    assert_eq!(
+        log.borrow().opened,
+        vec![file],
+        "a binary file opens in the default app"
+    );
+    assert!(
+        !ctrl.zoomed(),
+        "a binary file does not zoom into its placeholder"
+    );
+}
+
+#[test]
+fn activate_on_a_text_file_zooms_and_never_calls_the_opener() {
+    let dir = clean_repo_fixture();
+    let mut ctrl = controller_over_repo(dir.path());
+    let (opener, log) = FakeOpener::new(OutcomeKind::Launched);
+    ctrl.set_opener(Box::new(opener));
+
+    select_by_name(&mut ctrl, "a.txt");
+    ctrl.handle(Intent::Activate);
+
+    assert!(ctrl.zoomed(), "a text file still opens in zoom mode");
+    assert!(
+        log.borrow().opened.is_empty(),
+        "a text file is never handed to the opener"
+    );
+}

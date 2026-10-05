@@ -18,7 +18,7 @@ is additive and on by default.
 | `H` (Shift+`h`) | Scroll the **tree** pane left (long / deeply-nested rows), inert unless the tree is focused |
 | `L` (Shift+`l`) | Focus-gated: with the **tree** focused, scroll it right (long / deeply-nested rows); with the **content pane** focused (or zoomed), enter **line-select mode** to select lines and copy either a `file:line` reference or the content itself (see [below](#copy-a-line-reference-or-line-content-l)) |
 | _line-select mode_ | `j`/`k` (or `↑`/`↓`) move the marker, `Shift`+move (`J`/`K`, Shift+`↑`/`↓`) extends a line selection; **click-drag** with the mouse selects **text** (character-granular); `a` adds an annotation for the selected line/range, `Enter` copies the `path:line` / `path:start-end` **reference**, `y`/`Y` copies the selected **content**, `Esc` exits |
-| `Enter` | Activate the selection: expand/collapse a directory, or open a file in **zoom mode** (content full-screen) |
+| `Enter` | Activate the selection: expand/collapse a directory, or open a file in **zoom mode** (content full-screen). A binary file the viewer can't show (an image, a PDF, …) opens in the OS default app instead, like `O` |
 | `i` | Toggle gitignored files |
 | `.` | Toggle hidden (dot-prefixed) files and folders |
 | `c` | Toggle changed-files-only (baseline-aware: follows `b`) |
@@ -133,7 +133,7 @@ The viewer is keyboard-first; the mouse is additive and on by default:
 | --- | --- |
 | **Click** a tree row | Select it (focus the tree) |
 | **Double-click** a folder | Expand / collapse it (same as `Enter`) |
-| **Double-click** a file | Open it in **zoom mode**: content full-screen (same as `Enter`); the editor is the `e` key |
+| **Double-click** a file | Open it in **zoom mode**: content full-screen (same as `Enter`); a binary file (image, PDF, …) opens in the OS default app instead. The editor is the `e` key |
 | **Double-click** the content title | Toggle zoom: hide or show the tree (same as `z`). The filename sits on the content pane’s top border, so this works even when the tree is already hidden |
 | **Wheel** over the content pane | Scroll it vertically; over the tree, move the selection |
 | **Horizontal wheel / swipe** | Scroll the content, or the tree, sideways (terminal-dependent, see below) |

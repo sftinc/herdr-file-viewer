@@ -3031,6 +3031,28 @@ fn open_fullscreen_on_a_file_zooms_and_asks_herdr_to_zoom_the_pane() {
 }
 
 #[test]
+fn open_fullscreen_on_a_binary_file_does_not_zoom_the_pane() {
+    // A binary file opens in the default app on Enter rather than zooming, so `Z` must not zoom
+    // the herdr pane either: that would leave a full-screen pane with nothing opened in it.
+    let dir = TempDir::new();
+    std::fs::write(dir.path().join("pic.png"), b"\x89PNG\0\0").unwrap();
+    let (mut ctrl, _, _) = controller(dir.path(), false, StubGit::default(), false);
+
+    let calls: Arc<Mutex<Vec<Vec<String>>>> = Arc::new(Mutex::new(Vec::new()));
+    ctrl.set_host(Box::new(PaneZoomFake::new(Arc::clone(&calls))), None);
+
+    ctrl.handle(Intent::OpenFullscreen); // cursor on the binary file
+    assert!(
+        !ctrl.zoomed(),
+        "a binary file does not open in the in-plugin zoom"
+    );
+    assert!(
+        calls.lock().unwrap().is_empty(),
+        "Z on a binary file does not zoom the herdr pane"
+    );
+}
+
+#[test]
 fn open_fullscreen_again_unzooms_the_pane_and_restores_the_split() {
     // The toggle's reverse, as a real round-trip on one controller: `Z` full-screens, a second `Z`
     // un-zooms (`pane zoom --current --off`) and restores the two-column split (tree visible, focus
