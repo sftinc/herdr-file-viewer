@@ -681,11 +681,10 @@ impl TreeModel {
     }
 
     /// Expand every collapsed ancestor of `path` so it gets a row, and nothing else: no display
-    /// filter changes and the cursor index is not re-placed, so a folder opening above it shifts
-    /// the selection (the caller re-selects). How a newly changed file opens its folders. Returns
-    /// whether any folder opened.
-    pub fn expand_to(&mut self, path: &Path) -> bool {
-        !self.expand_ancestors(path).is_empty()
+    /// filter changes and the selection stays on its anchored path. How a newly changed file opens
+    /// its folders.
+    pub fn expand_to(&mut self, path: &Path) {
+        self.expand_ancestors(path);
     }
 
     /// Reveal `path` in the tree: expand every collapsed ancestor, relax display filters

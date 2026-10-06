@@ -150,19 +150,19 @@ layout — where the per-segment tree spends most of a narrow column on indentat
 file names that matter — it wins outright. On a shallow repo it mostly costs you the 1:1 "one row is
 one directory" reading of the tree. Turn it on if your paths are deeper than your pane is wide.
 
-`expand_changed` opens the folders above every file with **uncommitted changes** (the working-tree
-status that `d` shows, not the `b` baseline), so new work is on screen without expanding anything by
-hand. It acts at launch, after a worktree switch, and whenever a refresh (`r`, regaining focus)
-finds a file that was not changed before. It only opens folders: it never moves the cursor, changes
-a filter, or collapses anything. A folder you collapse stays closed until a *different* file inside
-it changes. Off by default.
-
 One small behavior difference: deciding whether a row folds means peeking inside directories the
 tree has not opened, so a compacted tree remembers which directories fold instead of re-checking
 every frame. Listings themselves are still read live — a new file appears as immediately as it
 always did — but the *span* of a folded row can lag. If a file created outside the viewer is what
 ends a chain, the row keeps its old span until the viewer re-checks, which it does on launch, `r`,
 returning from the editor, switching baseline, and regaining focus.
+
+`expand_changed` opens the folders above every file with **uncommitted changes** (the working-tree
+status that `d` shows, not the `b` baseline), so new work is on screen without expanding anything by
+hand. It acts at launch, after a worktree switch, and whenever a refresh (`r`, regaining focus)
+finds a file that was not changed before. It only opens folders: it never moves the cursor, changes
+a filter, or collapses anything. A folder you collapse stays closed until a *different* file inside
+it changes. Off by default.
 
 `confirm_discard` guards the one piece of state the viewer can lose. Annotations (`a` / `A`) are
 session-only, so both quitting (`q`) and switching worktree (`W`) discard them. By default either

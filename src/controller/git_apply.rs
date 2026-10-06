@@ -58,22 +58,17 @@ impl Controller {
 
     /// Open the folders of each file in `status` that is not in `seen`, so new work shows without
     /// hunting for it. Only NEW paths: a folder the user collapsed stays closed while its changes
-    /// are ones they have already seen. A deleted file has no row to open to. The cursor is a row
-    /// index, so a folder opening above it would shift the selection: put it back on the same path.
+    /// are ones they have already seen. A deleted file has no row to open to. The tree anchors its
+    /// cursor to the selected path, so a folder opening above it leaves the selection in place.
     pub(super) fn expand_new_changes(
         &mut self,
         status: &BTreeMap<PathBuf, Status>,
         seen: &BTreeMap<PathBuf, Status>,
     ) {
-        let selected = self.tree.selected().map(|n| n.path);
-        let mut opened = false;
         for (rel, st) in status {
             if *st != Status::Deleted && !seen.contains_key(rel) {
-                opened |= self.tree.expand_to(&self.root.join(rel));
+                self.tree.expand_to(&self.root.join(rel));
             }
-        }
-        if let (true, Some(path)) = (opened, selected) {
-            self.tree.select(&path);
         }
     }
 
