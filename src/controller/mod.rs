@@ -1883,7 +1883,7 @@ impl Controller {
         // `tree.selected()` (which re-runs the gitignore-aware filesystem walk) a second time
         // for the wrap decision — `visible_nodes()` is the hot, per-frame path.
         let nodes = self.tree.visible_nodes();
-        let selected = self.tree.cursor();
+        let selected = self.tree.cursor_in(&nodes);
         // Active wrapping responds immediately to the live `w` preference while a width-sensitive
         // reflow is pending; the settled document captures the same value when that render lands.
         let wrap = self.wrap_for(nodes.get(selected));
@@ -2323,11 +2323,16 @@ impl Controller {
     ///
     /// Status mode and baseline-aware changed-only share the tree's single `changed_only` flag, so
     /// a relaxed filter must clear both mirrors; while status mode is on it owns the flag, which
-    /// leaves `changed_only` false.
+    /// leaves `changed_only` false. A relaxed status mode also hands the tree back the baseline
+    /// changed-set, which `d` had swapped for working-tree status, so full-tree markers stay
+    /// baseline-aware (the same restore as leaving `d` by key).
     pub(super) fn resync_filter_mirrors(&mut self) {
         if self.tree.changed_only() {
             self.changed_only = !self.status_mode;
         } else {
+            if self.status_mode {
+                self.tree.set_changed_only(false, &self.changed);
+            }
             self.changed_only = false;
             self.status_mode = false;
         }
@@ -2602,19 +2607,11 @@ impl Controller {
     /// a file opens in **zoom mode** — the content pane fills the frame (focused), so the file
     /// is read full-screen. Read-only: opening in an external editor stays on `e`
     /// ([`Intent::OpenInEditor`]). The content was already rendered when the file was selected,
-    /// so this only flips the layout/focus — no re-render is dispatched. A binary file (an image,
-    /// a PDF, …) has nothing to read in zoom mode, so it goes to the OS default app instead: the
-    /// same read-only hand-off as `O` ([`Intent::OpenWithApp`]).
+    /// so this only flips the layout/focus — no re-render is dispatched.
     fn activate(&mut self) -> Effects {
         let Some(node) = self.tree.selected() else {
             return Effects::noop();
         };
-        if node.kind == NodeKind::File
-            && crate::render::classify(&self.root, &node.path, Default::default())
-                == crate::render::Prepared::Binary
-        {
-            return self.hand_off_to_opener(false);
-        }
         match node.kind {
             NodeKind::Dir => {
                 if node.expanded {
@@ -2655,11 +2652,10 @@ impl Controller {
             self.focus = Focus::Tree;
             return Effects::redraw();
         }
-        // Not full-screen → open the selection; a file additionally goes full-screen, unless it
-        // was a binary file that `activate` handed to the default app instead of zooming.
+        // Not full-screen → open the selection; a file additionally goes full-screen.
         let is_file = matches!(self.tree.selected().map(|n| n.kind), Some(NodeKind::File));
         let effects = self.activate();
-        if is_file && self.zoomed {
+        if is_file {
             self.host_zoom(true);
         }
         effects

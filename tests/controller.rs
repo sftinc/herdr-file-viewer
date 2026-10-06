@@ -2919,28 +2919,6 @@ fn open_fullscreen_on_a_file_zooms_and_asks_herdr_to_zoom_the_pane() {
 }
 
 #[test]
-fn open_fullscreen_on_a_binary_file_does_not_zoom_the_pane() {
-    // A binary file opens in the default app on Enter rather than zooming, so `Z` must not zoom
-    // the herdr pane either: that would leave a full-screen pane with nothing opened in it.
-    let dir = TempDir::new();
-    std::fs::write(dir.path().join("pic.png"), b"\x89PNG\0\0").unwrap();
-    let (mut ctrl, _, _) = controller(dir.path(), false, StubGit::default(), false);
-
-    let calls: Arc<Mutex<Vec<Vec<String>>>> = Arc::new(Mutex::new(Vec::new()));
-    ctrl.set_host(Box::new(PaneZoomFake::new(Arc::clone(&calls))), None);
-
-    ctrl.handle(Intent::OpenFullscreen); // cursor on the binary file
-    assert!(
-        !ctrl.zoomed(),
-        "a binary file does not open in the in-plugin zoom"
-    );
-    assert!(
-        calls.lock().unwrap().is_empty(),
-        "Z on a binary file does not zoom the herdr pane"
-    );
-}
-
-#[test]
 fn open_fullscreen_again_unzooms_the_pane_and_restores_the_split() {
     // The toggle's reverse, as a real round-trip on one controller: `Z` full-screens, a second `Z`
     // un-zooms (`pane zoom --current --off`) and restores the two-column split (tree visible, focus
@@ -3649,6 +3627,33 @@ fn focus_gained_re_queries_git_but_preserves_content_scroll() {
         ctrl.view_state().active.scroll,
         2,
         "focus-gain does NOT reset the content scroll"
+    );
+}
+
+#[test]
+fn focus_gained_keeps_the_selected_file_when_one_appears_above_it() {
+    let dir = TempDir::new();
+    std::fs::write(dir.path().join("b.txt"), "b").unwrap();
+    std::fs::write(dir.path().join("c.txt"), "c").unwrap();
+    let (mut ctrl, _, _) = controller(dir.path(), false, StubGit::default(), false);
+    ctrl.handle(Intent::NavDown);
+    assert_eq!(
+        ctrl.tree().selected().unwrap().path.file_name().unwrap(),
+        "c.txt"
+    );
+    let seq = ctrl.render_seq();
+
+    std::fs::write(dir.path().join("a.txt"), "a").unwrap();
+    ctrl.handle_focus_gained();
+    assert_eq!(
+        ctrl.tree().selected().unwrap().path.file_name().unwrap(),
+        "c.txt",
+        "a file appearing above the cursor must not move the selection"
+    );
+    assert_eq!(
+        ctrl.render_seq(),
+        seq,
+        "the selection did not change, so nothing re-renders"
     );
 }
 

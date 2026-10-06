@@ -291,7 +291,7 @@ pub fn render(
     let (content, base_notice) = match prepared {
         Prepared::Binary => {
             return (
-                Text::raw("[binary file: press Enter or O to open in the default app]"),
+                Text::raw("[binary file: press O to open in the default app]"),
                 None,
             );
         }
@@ -534,7 +534,8 @@ fn capability(mode: ViewMode) -> &'static str {
 fn renderer_command(command: &[String]) -> Result<Command, String> {
     let (prog, args) = command.split_first().ok_or("empty renderer command")?;
     let mut cmd = Command::new(prog);
-    cmd.args(args)
+    crate::proc::in_launch_dir(&mut cmd)
+        .args(args)
         .env("CLICOLOR_FORCE", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -1208,7 +1209,7 @@ mod tests {
         );
         assert_eq!(
             binary.lines[0].spans[0].content,
-            "[binary file: press Enter or O to open in the default app]"
+            "[binary file: press O to open in the default app]"
         );
         assert_eq!(notice, None);
     }
