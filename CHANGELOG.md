@@ -13,6 +13,9 @@ All notable changes to this project are documented here. The format is based on
 - `expand_changed`: open the tree's folders to files with uncommitted changes, at launch and whenever a refresh finds a newly changed file. A folder you collapse stays closed until a different file inside it changes. Off by default → [configuration](docs/configuration.md) · [usage](docs/usage.md#git-awareness)
 - `Enter` or a double-click on a binary file the viewer can't show (an image, a PDF, an archive) opens it in the OS default app, like `O`, instead of zooming into the placeholder → [keys](docs/keys.md) · [usage](docs/usage.md)
 
+### Changed
+- Update notices are off by default in this fork (`update_check = false`): they follow upstream releases. Set `update_check = true` to opt in; `HERDR_FILE_VIEWER_NO_UPDATE_CHECK` no longer has an effect on the setting → [configuration](docs/configuration.md)
+
 ### Fixed
 - The selected file stays selected when a file appears or disappears above it. A focus refresh or `r` used to move the highlight to a different file. Thanks @sftinc (#181)
 - Recover the initial pane layout without a keypress when a split resize notification is missed during startup. Root headers and the `? help` footer no longer remain clipped or wrapped until focus/navigation; unchanged idle frames still do not redraw. Thanks @rsaulo (#185) → [usage](docs/usage.md#the-tree)

@@ -67,6 +67,6 @@ herdr plugin install smarzban/herdr-file-viewer
 - You **don't** need `--ref` to stay current; it only *pins* a specific version (and a pin stays
   pinned until you change it).
 - Want a heads-up the moment a release ships? On GitHub, **Watch → Custom → Releases**.
-- Prefer no remote notices? Set [`update_check = false`](configuration.md), or set
-  `HERDR_FILE_VIEWER_NO_UPDATE_CHECK` when the config key is absent. The check otherwise runs at
-  most once per 24h and never blocks the viewer when offline.
+- Remote notices are off by default in this fork, since they follow upstream releases. Set
+  [`update_check = true`](configuration.md) to opt in; the check then runs at most once per 24h and
+  never blocks the viewer when offline.

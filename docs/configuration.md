@@ -43,9 +43,9 @@ than sourced from whatever repository you happen to have open.
 
 ## Precedence
 
-A config key always wins. Only two keys also have an environment-variable fallback tier below the
-config key and above the built-in default — `editor` (`$EDITOR`) and `update_check`
-(`$HERDR_FILE_VIEWER_NO_UPDATE_CHECK`) — giving those two a `config > env > default` chain. Every
+A config key always wins. Only one key also has an environment-variable fallback tier below the
+config key and above the built-in default — `editor` (`$EDITOR`) — giving it a
+`config > env > default` chain. Every
 other key (`markdown`, `diff`, `syntax`, `open`, `reveal`, `hide_dotfiles`, `show_ignored`,
 `compact_dirs`, `expand_changed`, `changed_file_view`, `baseline`, `confirm_discard`, `scroll_lines`,
 `tree_width`, `tree_position`, `tree_max_cols`, `open_direction`, `preview_max_lines`,
@@ -73,7 +73,7 @@ watch = true                # false to refresh only on focus and r
 expand_changed = false      # true to open the folders of files with uncommitted changes
 changed_file_view = "diff"  # changed files start in "diff", or use normal "content" by file type
 baseline = "base"           # force startup diff baseline: "base" or "head" (omit for context-smart default)
-update_check = true         # false disables all remote requests and their display
+update_check = false        # true enables remote release/spotlight notices (off by default in this fork)
 confirm_discard = true      # false to discard annotations without confirming (on quit / worktree switch)
 scroll_lines = 3            # mouse-wheel step (content/search/help), a 1 to 10 scale: 1 slow · 3 medium · 6 fast · 10 max
 tree_width = 30             # tree column's share of the viewer pane, percent 20-80 (content takes the rest)
@@ -85,9 +85,9 @@ preview_max_lines = 10000   # show at most this many lines before a truncated pr
 preview_max_kib = 1024      # ...or this size before truncating, in KiB (1024 = 1 MB; 64–65536)
 ```
 
-`update_check` governs release details and project spotlights. `false` disables all remote requests
-and their display. When the key is unset, `$HERDR_FILE_VIEWER_NO_UPDATE_CHECK` also disables it.
-No separate spotlight setting exists.
+`update_check` governs release details and project spotlights. It is off by default in this fork,
+whose release notices would follow upstream; `true` enables remote requests and their display,
+and there is no environment variable. No separate spotlight setting exists.
 The system `curl` is optional: without it, document retrieval is unavailable without an error.
 
 `changed_file_view` controls only the automatic initial view for Git-changed files. Its default,

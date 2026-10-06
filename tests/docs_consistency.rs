@@ -368,7 +368,7 @@ fn section<'a>(document: &'a str, start: &str, end: &str) -> &'a str {
 
 #[test]
 fn remote_notice_docs_keep_their_controls_and_boundaries() {
-    let config = section(CONFIG_DOC, "update_check = true", "`tree_width`");
+    let config = section(CONFIG_DOC, "update_check = false", "`tree_width`");
     assert!(
         config.contains("`update_check` governs"),
         "the update_check passage must say it governs remote notices"

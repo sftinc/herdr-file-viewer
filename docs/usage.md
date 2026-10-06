@@ -410,8 +410,8 @@ border so the overlay is discoverable without already knowing the key.
 
 The viewer can show an advisory status row for a newer release or project spotlight. `?` opens
 **What's New** first; `u` dismisses the whole advisory status row for this session only. It is
-display-only and never installs, opens, or copies anything. Control remote notices with
-[`update_check`](configuration.md).
+display-only and never installs, opens, or copies anything. Remote notices are off by default in this fork;
+turn them on with [`update_check`](configuration.md).
 
 ## Using the mouse
 

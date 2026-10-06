@@ -23,9 +23,9 @@
 # picked up on relaunch (there is no in-app settings editor). See what is currently
 # in effect any time in the `?` help overlay's Settings and Keybindings tabs.
 #
-# Precedence: a config key always wins. Two keys also fall back to an environment
-# variable before the built-in default (`editor` -> $EDITOR, `update_check` ->
-# $HERDR_FILE_VIEWER_NO_UPDATE_CHECK); every other key is config-or-default only.
+# Precedence: a config key always wins. One key also falls back to an environment
+# variable before the built-in default (`editor` -> $EDITOR); every other key is
+# config-or-default only.
 # A missing file is the normal case. A malformed file (bad TOML or a wrong-typed
 # value) is ignored whole and every key falls back to its default, flagged in the
 # Settings tab.
@@ -110,9 +110,10 @@
 #baseline = "base" # optional override
 
 # `update_check` governs release details and project spotlights.
-# `false` disables all remote requests and their display. When unset,
-# $HERDR_FILE_VIEWER_NO_UPDATE_CHECK also disables it. No separate spotlight setting. Default:
-#update_check = true
+# `true` enables them; `false` disables all remote requests and their display. No
+# separate spotlight setting. Off by default in this fork (the check follows upstream's
+# releases). Default:
+#update_check = false
 
 # Annotations (`a` / `A`) live only for the session, so both quitting (`q`) and
 # switching worktree (`W`) destroy them. By default either confirms first,

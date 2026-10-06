@@ -1042,7 +1042,7 @@ mod tests {
             "expand_changed    = false",
             "changed_file_view = diff",
             "baseline          = base",
-            "update_check      = on",
+            "update_check      = off",
             "confirm_discard   = on",
             &format!(
                 "scroll_lines      = {}",

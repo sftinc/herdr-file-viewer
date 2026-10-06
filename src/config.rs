@@ -481,10 +481,9 @@ pub fn resolve(config: &Config, get_env: impl Fn(&str) -> Option<String>) -> Eff
     // so a session that never annotates never sees it, and the one that does has work to lose.
     let confirm_discard = config.confirm_discard.unwrap_or(true);
 
-    let update_check = match config.update_check {
-        Some(b) => b,
-        None => get_env("HERDR_FILE_VIEWER_NO_UPDATE_CHECK").is_none(),
-    };
+    // Config > default; no env var. Defaults OFF in this fork: the check queries upstream's
+    // releases, which a fork install pinned through herdr-kit must not follow.
+    let update_check = config.update_check.unwrap_or(false);
 
     // Config > default; no env var. Clamp to `1..=MAX_SCROLL_LINES`: a configured `0` can never
     // freeze scrolling and an over-large value is capped to a sane line step rather than page-jumping
@@ -1160,16 +1159,12 @@ mod tests {
     }
 
     #[test]
-    fn resolve_config_update_check_wins_over_env() {
+    fn resolve_config_update_check_opts_in() {
         let config = Config {
             update_check: Some(true),
             ..Default::default()
         };
-        let get_env = |k: &str| match k {
-            "HERDR_FILE_VIEWER_NO_UPDATE_CHECK" => Some("1".to_string()),
-            _ => None,
-        };
-        let effective = resolve(&config, get_env);
+        let effective = resolve(&config, |_| None);
         assert!(effective.update_check);
     }
 
@@ -1199,17 +1194,6 @@ mod tests {
         assert_eq!(effective.editor, Some(std::ffi::OsString::from("vim")));
     }
 
-    #[test]
-    fn resolve_env_no_update_check_fallback_when_config_absent() {
-        let config = Config::default();
-        let get_env = |k: &str| match k {
-            "HERDR_FILE_VIEWER_NO_UPDATE_CHECK" => Some("1".to_string()),
-            _ => None,
-        };
-        let effective = resolve(&config, get_env);
-        assert!(!effective.update_check);
-    }
-
     // --- resolve: AC-5 default when neither config nor env set ---
 
     #[test]
@@ -1217,7 +1201,10 @@ mod tests {
         let config = Config::default();
         let effective = resolve(&config, |_| None);
         assert_eq!(effective.editor, None);
-        assert!(effective.update_check);
+        assert!(
+            !effective.update_check,
+            "update notices default OFF in this fork"
+        );
         assert!(!effective.hide_dotfiles);
         assert!(!effective.show_ignored, "ignored entries hidden by default");
         assert_eq!(
@@ -1247,7 +1234,10 @@ mod tests {
         };
         let effective = resolve(&config, |_| None);
         assert_eq!(effective.editor, Some(std::ffi::OsString::from("code")));
-        assert!(effective.update_check);
+        assert!(
+            !effective.update_check,
+            "update notices default OFF in this fork"
+        );
         assert!(!effective.hide_dotfiles);
         assert!(!effective.show_ignored);
         assert_eq!(effective.markdown, None);
