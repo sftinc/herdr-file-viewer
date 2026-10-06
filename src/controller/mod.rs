@@ -1897,7 +1897,7 @@ impl Controller {
         // `tree.selected()` (which re-runs the gitignore-aware filesystem walk) a second time
         // for the wrap decision — `visible_nodes()` is the hot, per-frame path.
         let nodes = self.tree.visible_nodes();
-        let selected = self.tree.cursor();
+        let selected = self.tree.cursor_in(&nodes);
         // Active wrapping responds immediately to the live `w` preference while a width-sensitive
         // reflow is pending; the settled document captures the same value when that render lands.
         let wrap = self.wrap_for(nodes.get(selected));
@@ -2337,11 +2337,16 @@ impl Controller {
     ///
     /// Status mode and baseline-aware changed-only share the tree's single `changed_only` flag, so
     /// a relaxed filter must clear both mirrors; while status mode is on it owns the flag, which
-    /// leaves `changed_only` false.
+    /// leaves `changed_only` false. A relaxed status mode also hands the tree back the baseline
+    /// changed-set, which `d` had swapped for working-tree status, so full-tree markers stay
+    /// baseline-aware (the same restore as leaving `d` by key).
     pub(super) fn resync_filter_mirrors(&mut self) {
         if self.tree.changed_only() {
             self.changed_only = !self.status_mode;
         } else {
+            if self.status_mode {
+                self.tree.set_changed_only(false, &self.changed);
+            }
             self.changed_only = false;
             self.status_mode = false;
         }
