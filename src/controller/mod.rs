@@ -2319,6 +2319,7 @@ impl Controller {
             Intent::PageDown => self.navigate(self.page_step()),
             Intent::Expand => self.expand(),
             Intent::Collapse => self.collapse(),
+            Intent::CloseAll => self.close_all(),
             Intent::Activate => self.activate(),
             Intent::OpenFullscreen => self.open_fullscreen(),
             Intent::ToggleIgnore => self.toggle_ignore(),
@@ -2746,6 +2747,21 @@ impl Controller {
             current = parent;
         }
         Effects::noop()
+    }
+
+    /// Close every open folder. Focus-blind, since it only moves the tree. Inert in changed-only
+    /// and status mode, whose trees always show every folder open. Re-renders when the selection
+    /// moves up to its top-level ancestor, like walking up with [`Self::collapse`].
+    fn close_all(&mut self) -> Effects {
+        if self.changed_only || self.status_mode {
+            return Effects::noop();
+        }
+        let before = self.tree.selected().map(|n| n.path);
+        self.tree.collapse_all();
+        if self.tree.selected().map(|n| n.path) != before {
+            self.dispatch_render();
+        }
+        Effects::redraw()
     }
 
     /// Activate the selected node (Enter / double-click): a directory toggles expand/collapse;
