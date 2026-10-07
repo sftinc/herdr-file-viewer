@@ -6,7 +6,7 @@ use herdr_file_viewer::git::Status;
 use herdr_file_viewer::presenter::{
     AnnotationEditorKind, AnnotationEditorView, AnnotationIndicatorsView, AnnotationOverviewView,
     AnnotationRowView, AnnotationTargetView, CharSelView, ContentSearch, DiscardConfirmView,
-    FinderView, FlashLine, Focus, HelpView, LineSelectView, PickerRowView, PickerView,
+    FinderKind, FinderView, FlashLine, Focus, HelpView, LineSelectView, PickerRowView, PickerView,
     PreviewProjection, ViewState, draw,
 };
 use herdr_file_viewer::render::to_text;
@@ -2508,6 +2508,7 @@ fn remote_notice_status_carves_exactly_one_row_off_the_columns() {
 fn finder_state_empty_query() -> ViewState {
     let mut state = sample_state();
     state.finder = Some(FinderView {
+        kind: FinderKind::File,
         query: String::new(),
         matches: vec![].into(),
         cursor: 0,
@@ -2521,6 +2522,7 @@ fn finder_state_empty_query() -> ViewState {
 fn finder_state_with_matches() -> ViewState {
     let mut state = sample_state();
     state.finder = Some(FinderView {
+        kind: FinderKind::File,
         query: "main".to_string(),
         matches: vec![
             "src/main.rs".to_string(),
@@ -2659,6 +2661,7 @@ fn finder_state_overflow() -> ViewState {
     // well below 30 and the scrollbar must be shown. Cursor at index 25 — near the end.
     let matches: Vec<String> = (0..30).map(|i| format!("src/file_{i:02}.rs")).collect();
     state.finder = Some(FinderView {
+        kind: FinderKind::File,
         query: "file".to_string(),
         matches: matches.into(),
         cursor: 25,
@@ -2777,6 +2780,7 @@ fn finder_overlay_nonempty_query_zero_matches_shows_prompt_not_placeholder() {
     // placeholder) and must NOT draw any match rows.
     let mut state = sample_state();
     state.finder = Some(FinderView {
+        kind: FinderKind::File,
         query: "zzzzz".to_string(),
         matches: vec![].into(),
         cursor: 0,
@@ -2800,6 +2804,84 @@ fn finder_overlay_nonempty_query_zero_matches_shows_prompt_not_placeholder() {
     assert!(
         out.contains("Go to file"),
         "the finder title is still drawn\n{out}"
+    );
+}
+
+#[test]
+fn project_search_empty_query_shows_scope_and_content_placeholder() {
+    let mut state = sample_state();
+    state.finder = Some(FinderView {
+        kind: FinderKind::ProjectContent {
+            include_ignored: false,
+        },
+        query: String::new(),
+        matches: vec![].into(),
+        cursor: 0,
+        hscroll: 0,
+        status: None,
+    });
+
+    let out = render(&state, 100, 24);
+    assert!(out.contains("Search contents · project"), "{out}");
+    assert!(out.contains("type to search file contents"), "{out}");
+}
+
+#[test]
+fn project_search_renders_status_chip_scope_and_selected_row() {
+    let project = |status: &str, matches: Vec<String>, cursor| {
+        let mut state = sample_state();
+        state.finder = Some(FinderView {
+            kind: FinderKind::ProjectContent {
+                include_ignored: true,
+            },
+            query: "needle".into(),
+            matches: matches.into(),
+            cursor,
+            hscroll: 0,
+            status: Some(status.to_string()),
+        });
+        state
+    };
+
+    let loading = render(&project("Searching…", vec![], 0), 100, 24);
+    assert!(loading.contains("Search contents · all files"), "{loading}");
+    assert!(loading.contains("Searching…"), "{loading}");
+
+    let empty = render(&project("No matches", vec![], 0), 100, 24);
+    assert!(empty.contains("No matches"), "{empty}");
+
+    let rows = project(
+        "500+ matches",
+        vec![
+            "src/app.rs:42  fn needle()".into(),
+            "src/lib.rs:7  mod needle;".into(),
+        ],
+        1,
+    );
+    let out = render(&rows, 100, 24);
+    assert!(out.contains("src/app.rs:42  fn needle()"), "{out}");
+    assert!(out.contains("500+ matches"), "{out}");
+    insta::assert_snapshot!("presenter_project_search_results", out);
+
+    let buf = render_buffer(&rows, 100, 24);
+    let mut selected = None;
+    'outer: for y in 0..buf.area().height {
+        for x in 0..buf.area().width {
+            let needle = "src/lib.rs:7";
+            if needle.chars().enumerate().all(|(i, ch)| {
+                buf.cell((x + i as u16, y))
+                    .is_some_and(|cell| cell.symbol() == ch.to_string())
+            }) {
+                selected = buf.cell((x, y));
+                break 'outer;
+            }
+        }
+    }
+    assert!(
+        selected
+            .expect("selected project-search row")
+            .modifier
+            .contains(ratatui::style::Modifier::REVERSED)
     );
 }
 

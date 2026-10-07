@@ -1,5 +1,6 @@
 //! File Index — a recursive, gitignore-aware walk that returns every file under `root`
-//! as a root-relative path string.
+//! as a root-relative path string. Its walk policy ([`file_walk`]) is shared with
+//! project-content search.
 //!
 //! Used by the Go-to-file feature (AC-12…AC-15, AC-18, AC-19, AC-N1, AC-N2, AC-N5).
 //! This is a separate walk from the Tree Model (ADR-0005): no depth limit, files only,
@@ -71,15 +72,8 @@ pub(crate) fn build_cancellable(
     cancelled: impl Fn() -> bool,
     progress: impl Fn(usize),
 ) -> Option<Vec<String>> {
-    let mut builder = walk_builder(root, is_git_repo);
-    builder
-        .hidden(false) // include dotfiles (AC-17 depends on the index NOT hiding dotfiles)
-        .git_ignore(true)
-        .git_exclude(true)
-        .filter_entry(|e| e.file_name() != ".git"); // prune entire .git subtree — AC-14
-
     let mut paths = Vec::new();
-    for entry in builder.build() {
+    for entry in file_walk(root, is_git_repo, false).build() {
         if cancelled() {
             return None;
         }
@@ -97,6 +91,19 @@ pub(crate) fn build_cancellable(
     Some(paths)
 }
 
+/// The file-index walk shared by Go-to-file and project-content search: dotfiles included, the
+/// `.git` subtree pruned, and Git ignore sources honored unless `include_ignored` (the tree's `i`
+/// toggle) is set. `is_git_repo` bounds the ancestor `.gitignore` search (see [`walk_builder`]).
+pub(crate) fn file_walk(root: &Path, is_git_repo: bool, include_ignored: bool) -> WalkBuilder {
+    let mut builder = walk_builder(root, is_git_repo);
+    builder
+        .hidden(false) // include dotfiles (AC-17 depends on the index NOT hiding dotfiles)
+        .git_ignore(!include_ignored)
+        .git_exclude(!include_ignored)
+        .filter_entry(|e| e.file_name() != ".git"); // prune entire .git subtree — AC-14
+    builder
+}
+
 /// Render a root-relative path as a forward-slash string on every platform. The rest of the app
 /// (git status/diff/worktree paths, the tree, the content title) speaks git's forward-slash
 /// convention; on Windows the native separator is `\`, so a raw stringification would make the
@@ -104,7 +111,7 @@ pub(crate) fn build_cancellable(
 /// with `/` is identical to today's output on unix (the separator already is `/`) and converts
 /// `a\b` → `a/b` on Windows. It also enforces AC-N5 (root-relative, no `..`/absolute leak) by
 /// construction.
-fn rel_to_slash(rel: &Path) -> String {
+pub(crate) fn rel_to_slash(rel: &Path) -> String {
     rel.components()
         .filter_map(|c| match c {
             std::path::Component::Normal(s) => Some(s.to_string_lossy()),

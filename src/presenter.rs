@@ -273,9 +273,21 @@ pub struct CharSelView {
     pub gutter: usize,
 }
 
+/// Which feature is drawing the shared finder-shaped popup. Only the title and the empty-query
+/// placeholder differ; rows, scrolling, the status chip, and the footer are shared.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FinderKind {
+    /// The `f` go-to-file fuzzy path finder.
+    File,
+    /// The `s` project-content search, labelled with the `i` scope captured when it opened.
+    ProjectContent { include_ignored: bool },
+}
+
 /// The finder overlay's draw model (an owned snapshot of the controller's finder state).
 /// Built by the Session Controller's `view_state()`.
 pub struct FinderView {
+    /// Which popup this is (go-to-file or project-content search).
+    pub kind: FinderKind,
     /// The current query text drawn on the input line.
     pub query: String,
     /// Matched root-relative paths, ranked best-first. Empty when the query is empty (AC-2).
@@ -1980,6 +1992,38 @@ const FINDER_FOOTER_HINT: &str = "↑↓ move · ←→ scroll · ⏎ open · es
 const FINDER_PROMPT: &str = "> ";
 /// The placeholder shown on the query-input line when the query is empty (AC-2).
 const FINDER_PLACEHOLDER: &str = "> type to find a file…";
+/// The project-content search's empty-query placeholder.
+const PROJECT_SEARCH_PLACEHOLDER: &str = "> type to search file contents…";
+
+/// The popup's top-left title for its [`FinderKind`].
+fn finder_title(kind: FinderKind) -> &'static str {
+    match kind {
+        FinderKind::File => FINDER_TITLE,
+        FinderKind::ProjectContent {
+            include_ignored: false,
+        } => "Search contents · project",
+        FinderKind::ProjectContent {
+            include_ignored: true,
+        } => "Search contents · all files",
+    }
+}
+
+/// The query-input line: `> query`, or the kind's dim placeholder when the query is empty.
+fn finder_query_line(finder: &FinderView) -> Line<'static> {
+    if finder.query.is_empty() {
+        let placeholder = match finder.kind {
+            FinderKind::File => FINDER_PLACEHOLDER,
+            FinderKind::ProjectContent { .. } => PROJECT_SEARCH_PLACEHOLDER,
+        };
+        Line::styled(
+            placeholder.to_string(),
+            Style::new().add_modifier(Modifier::DIM),
+        )
+    } else {
+        let display_query = sanitize_control(&finder.query);
+        Line::from(format!("{FINDER_PROMPT}{display_query}"))
+    }
+}
 
 /// The help overlay's top-left title (the box label).
 const HELP_TITLE: &str = "Help";
@@ -2050,21 +2094,13 @@ struct FinderLayout {
 /// math — both [`draw_finder_overlay`] and [`geometry`] call it, so the drawn rects and the
 /// hit-test geometry are guaranteed to agree.
 fn finder_overlay_layout(area: Rect, finder: &FinderView) -> FinderLayout {
-    // Build the query line for width measurement (same logic as draw).
-    let query_line: Line<'static> = if finder.query.is_empty() {
-        Line::styled(
-            FINDER_PLACEHOLDER.to_string(),
-            Style::new().add_modifier(Modifier::DIM),
-        )
-    } else {
-        let display_query = sanitize_control(&finder.query);
-        Line::from(format!("{FINDER_PROMPT}{display_query}"))
-    };
+    // Build the query line for width measurement (same helper as draw).
+    let query_line = finder_query_line(finder);
 
     // Chrome widths (same as draw_finder_overlay). No top-right chip — the footer is the single
     // home for all key hints.
     let hint_style = Style::new().fg(Color::Reset);
-    let top_left = Line::from(FINDER_TITLE);
+    let top_left = Line::from(finder_title(finder.kind));
     let footer = Line::styled(FINDER_FOOTER_HINT, hint_style).centered();
 
     let query_w = query_line.width();
@@ -2167,24 +2203,14 @@ fn draw_finder_overlay(frame: &mut Frame, area: Rect, finder: &FinderView) {
     // function and `geometry()` can never drift from each other.
     let layout = finder_overlay_layout(area, finder);
 
-    // Build the query line for rendering (same logic as the layout helper, which built it only
-    // for measurement). Re-built here because `Line` is not `Copy` and the helper doesn't need
-    // to return it.
-    let query_line: Line<'static> = if finder.query.is_empty() {
-        // Empty query: dim placeholder (AC-2).
-        Line::styled(
-            FINDER_PLACEHOLDER.to_string(),
-            Style::new().add_modifier(Modifier::DIM),
-        )
-    } else {
-        let display_query = sanitize_control(&finder.query);
-        Line::from(format!("{FINDER_PROMPT}{display_query}"))
-    };
+    // Build the query line for rendering (same helper as the layout, which built it only for
+    // measurement). Re-built here because `Line` is not `Copy`.
+    let query_line = finder_query_line(finder);
 
-    // Chrome: static strings, no sanitization needed. Only FINDER_TITLE on the top border —
+    // Chrome: static strings, no sanitization needed. Only the kind title on the top border —
     // the `esc cancel` chip has been removed so it does not duplicate the footer hint.
     let hint_style = Style::new().fg(Color::Reset);
-    let top_left = Line::from(FINDER_TITLE);
+    let top_left = Line::from(finder_title(finder.kind));
     let footer = Line::styled(FINDER_FOOTER_HINT, hint_style).centered();
 
     // Clear whatever the columns drew beneath the popup so it reads as a true modal.

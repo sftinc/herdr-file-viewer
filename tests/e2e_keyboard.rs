@@ -115,6 +115,73 @@ fn finder_routes_printable_keys_to_query_and_enter_confirms_esc_cancels() {
     }
 }
 
+/// Project-content search e2e: `s` owns printable keys, reports a root-relative `path:line`, and
+/// Enter opens the selected file in source view at that line. The adjacent `LANDINGMARK` starts
+/// below the initial viewport and does not appear in the result excerpt, so seeing it after Enter
+/// proves the line jump rather than only the file reveal.
+#[test]
+fn project_search_reports_path_and_line_then_enter_jumps_to_the_source_line() {
+    let dir = TempDir::new();
+    let p = dir.path();
+    init_repo_with_commit(p);
+
+    // Keep a different file first in tree order so the target has never been rendered before the
+    // search confirmation. The target match is at line 40, well below the initial viewport.
+    std::fs::write(p.join("aaa.txt"), "INITIALMARK\n").unwrap();
+    let mut target_lines = Vec::with_capacity(60);
+    for i in 1u32..=60 {
+        target_lines.push(match i {
+            40 => "PROJECTNEEDLE".to_string(),
+            41 => "LANDINGMARK".to_string(),
+            _ => format!("F{i:02}"),
+        });
+    }
+    std::fs::write(p.join("zz_target.txt"), target_lines.join("\n") + "\n").unwrap();
+    git(p, &["add", "aaa.txt", "zz_target.txt"]);
+    git(p, &["commit", "-q", "-m", "project search e2e files"]);
+
+    let mut cmd = viewer_command(p);
+    cmd.env("EDITOR", "true");
+    let mut s = Session::spawn(cmd).expect("spawn the viewer in a pty");
+    s.set_expect_timeout(Some(Duration::from_secs(15)));
+
+    // Synchronize on the initially selected file's rendered content before opening the modal.
+    s.expect("INITIALMARK")
+        .expect("the viewer renders the initial file before project search opens");
+    s.send("s").expect("send open-project-search");
+    s.expect("Search contents")
+        .expect("the project-search overlay renders after `s`");
+
+    // Send characters only after observing the overlay, proving printable input is routed to the
+    // modal rather than to global actions. The async worker eventually draws the matching row.
+    for c in "PROJECTNEEDLE".chars() {
+        s.send(c.to_string()).expect("send project-search char");
+    }
+    s.expect("zz_target.txt:40")
+        .expect("the result row reports the root-relative path and one-based source line");
+
+    // Every prefix of the query also matches line 40, so the row above may come from an
+    // intermediate query whose hits the next key cleared. That is safe: Enter pressed before the
+    // full query's result lands is held and opens its first hit on arrival.
+    // LANDINGMARK is on the next source line and is absent from the one-line result excerpt. It is
+    // initially off-screen, so its first appearance proves Enter revealed the file and jumped to
+    // the matching line rather than merely opening the file at its top.
+    s.send("\r")
+        .expect("send Enter to confirm the project-search result");
+    s.expect("LANDINGMARK")
+        .expect("Enter opens source view at the matching line");
+
+    s.send("q").expect("send close");
+    s.expect(Eof)
+        .expect("the viewer terminates cleanly after the project-search flow");
+    match s.get_process().wait().expect("reap the viewer") {
+        WaitStatus::Exited(_, code) => {
+            assert_eq!(code, 0, "project-search keys do not crash the viewer")
+        }
+        other => panic!("expected a clean exit, got {other:?}"),
+    }
+}
+
 #[test]
 fn every_keyboard_function_drives_the_viewer_and_it_exits_cleanly() {
     let dir = TempDir::new();

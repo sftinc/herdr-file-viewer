@@ -32,6 +32,8 @@ back into the chat. It never touches your files.
 
 - **The right view, automatically.** A changed file opens as a diff. A README renders. Code is
   highlighted. No `cat`, no mode switch, no commands. Press `v` only when you want something else.
+- **Find the path or the text.** `f` fuzzy-finds a file name; `s` searches project contents and
+  shows each matching `path:line` with an excerpt. Press `Enter` to open the source at that line.
 - **Git in the tree.** `M`/`A`/`D`/`?` on every row, a changed-only filter (`c`), jump next/prev
   changed file (`]`/`[`), flip the baseline between your branch and `HEAD` (`b`). Not a separate
   git client.
@@ -55,6 +57,7 @@ guide](docs/usage.md) explains each feature. These are the main keys:
 | Key | Does |
 | --- | --- |
 | `f` | Fuzzy-find any file in the tree |
+| `s` | Search project contents; open a matching `path:line` with `Enter` |
 | `p` | Pin the current file and keep browsing (compare across worktrees with `W`) |
 | `a` / `A` | Annotate a file or range; copy the notes out for an agent |
 | `v` | Cycle the view (diff ⇄ rendered ⇄ syntax) |
@@ -107,6 +110,9 @@ description = "open file viewer at… (tab)"     # same popup, opens a new tab
 
 Run `herdr server reload-config`, then press your key. The plugin includes the split-pane viewer and
 its open actions, which register during installation. You only need to add the keybinding.
+
+Once the viewer has focus, press bare `s` to search project contents — not `prefix+s`, which is
+Herdr's default shortcut for its own Settings screen. Viewer keys do not use the Herdr prefix.
 
 The docs cover [installing and updating](docs/install.md),
 [summoning the viewer](docs/summoning.md) (split vs. tab, opening at another directory, the

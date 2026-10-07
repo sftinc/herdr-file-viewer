@@ -70,6 +70,24 @@ excludes `.git`. It does not prune caches or cap the number of files, so on a ve
 (such as a home directory outside any Git repository) results appear only once the whole tree has
 been walked — the viewer stays responsive in the meantime.
 
+### Searching file contents
+
+Press `s` when you know text **inside** a file instead. It searches in the background and reports
+one row per matching source line as `path:line  excerpt`. Rows appear as they are found, with the
+running count in the popup's top-right corner, and typing more or pressing `Esc` stops the search
+in progress; `↑`/`↓` select a row, `←`/`→` scroll long rows,
+`Enter` opens that file in source view at the line (pressed before any result has arrived, it opens
+the first one once it does), and `Esc` leaves the prior selection unchanged.
+The query is literal smartcase, like `/`: all-lowercase ASCII is case-insensitive, while any ASCII
+capital makes it case-sensitive.
+
+The search takes its scope from `i` when the popup opens. With ignored files hidden it honors
+`.gitignore` and Git excludes; with ignored files shown it includes them. The separate `.` toggle
+does not limit this search, so dotfiles are included unless ignored, but `.git/` is never searched.
+For a bounded, responsive scan it skips files over 1 MiB, binary (NUL-bearing), invalid-UTF-8, and
+unreadable files, and retains at most 500 matching lines; the popup says when further matches were
+omitted.
+
 ## Open at a known file
 
 When an agent, companion plugin, or script knows the path and optional line, it can start the viewer

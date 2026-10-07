@@ -117,6 +117,10 @@ pub enum Intent {
     /// typing a fuzzy query. Read-only — it navigates the viewer's selection; it never
     /// modifies any file (AC-1, AC-N1, AC-N3).
     OpenFinder,
+    /// Open project-wide literal content search. Results identify the root-relative file and source
+    /// line; confirming one reveals that file in source view and jumps to the line. The scan is
+    /// read-only and follows the current ignored-file visibility (`i`).
+    OpenProjectSearch,
     /// Open the go-to-line prompt to scroll the content pane to a source line by number.
     /// Read-only navigation — it only moves the in-pane scroll; no file or git mutation
     /// (AC-1, AC-N1). Opens for any selected **file**, in every view: in a source-mapped
@@ -173,7 +177,7 @@ pub enum Intent {
 impl Intent {
     /// Every intent variant — lets the dispatcher and tests enumerate the closed set so
     /// keyboard-completeness (AC-18) and the no-file/git-mutation invariant (AC-N3) stay checkable.
-    pub const ALL: [Intent; 44] = [
+    pub const ALL: [Intent; 45] = [
         Intent::NavUp,
         Intent::NavDown,
         Intent::PageUp,
@@ -208,6 +212,7 @@ impl Intent {
         Intent::DismissUpdate,
         Intent::SwitchWorktree,
         Intent::OpenFinder,
+        Intent::OpenProjectSearch,
         Intent::OpenGoToLine,
         Intent::OpenSearch,
         Intent::NextMatch,
@@ -268,6 +273,7 @@ mod tests {
                 | Intent::DismissUpdate
                 | Intent::SwitchWorktree
                 | Intent::OpenFinder
+                | Intent::OpenProjectSearch
                 | Intent::OpenGoToLine
                 | Intent::OpenSearch
                 | Intent::NextMatch
@@ -350,11 +356,11 @@ mod tests {
     }
 
     #[test]
-    fn all_length_is_44() {
+    fn all_length_is_45() {
         assert_eq!(
             Intent::ALL.len(),
-            44,
-            "Intent::ALL must have exactly 44 variants"
+            45,
+            "Intent::ALL must have exactly 45 variants"
         );
     }
 

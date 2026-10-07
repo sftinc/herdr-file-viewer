@@ -17,9 +17,10 @@
 //! than clobbering the current selection.
 //!
 //! The `impl Controller` surface is split across feature submodules (each `use super::*` and adds
-//! its own `pub(super)` methods to the same `Controller`): `help`, `finder`, `picker`, `infile`
-//! (the bottom prompt), `mouse` (column/tree pointer handling), and `git_apply`. This module keeps
-//! the type definitions, construction, the intent/poll/render core, and tree-navigation intents.
+//! its own `pub(super)` methods to the same `Controller`): `help`, `finder`, `project_search`,
+//! `picker`, `infile` (the bottom prompt), `lineselect`, `annotation`, `pinned`, `mouse` (column/tree
+//! pointer handling), and `git_apply`. This module keeps the type definitions, construction, the
+//! intent/poll/render core, and tree-navigation intents.
 
 mod annotation;
 mod finder;
@@ -30,6 +31,7 @@ mod lineselect;
 mod mouse;
 mod picker;
 mod pinned;
+mod project_search;
 
 use crate::annotation::AnnotationStore;
 use crate::finder::FinderState;
@@ -43,13 +45,14 @@ use crate::picker::PickerState;
 use crate::presenter::{
     AnnotationEditorKind, AnnotationEditorView, AnnotationIndicatorsView, AnnotationOverviewView,
     AnnotationRowView, AnnotationTargetView, CharSelView, ContentSearch, DiscardConfirmView,
-    FinderView, Focus, HelpView, LineSelectView, PaneGeometry, PickerRowView, PickerView,
-    PreviewProjection, PreviewViewports, ViewState,
+    FinderKind, FinderView, Focus, HelpView, LineSelectView, PaneGeometry, PickerRowView,
+    PickerView, PreviewProjection, PreviewViewports, ViewState,
 };
 use crate::preview::{
     BranchState, PreviewDocument, PreviewInteractionState, PreviewOrigin, PreviewPresentation,
     PreviewSelection,
 };
+use crate::project_search::ProjectSearchState;
 use crate::render::Renderers;
 use crate::root::Resolved;
 use crate::tree::{Node, NodeKind, TreeModel};
@@ -66,6 +69,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::io;
 use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
@@ -590,20 +594,37 @@ struct RenderCompletion {
     result: RenderResult,
 }
 
+/// One off-thread project-content search request. The root and ignore scope are captured when the
+/// modal opens/edits so a later re-root or filter change cannot silently change an in-flight scan.
+struct ProjectSearchJob {
+    seq: u64,
+    request: crate::repo_search::SearchRequest,
+}
+
+/// A project-content scan's result: the cumulative hits so far (`done == false`, streamed while the
+/// scan runs) or the final result (`done == true`).
+struct ProjectSearchCompletion {
+    seq: u64,
+    output: crate::repo_search::SearchOutput,
+    done: bool,
+}
+
 /// A re-root's off-thread git result: the working-tree status (tree markers, AC-7) and the
 /// changed-set against the active baseline (the changed-only filter, AC-6), both keyed by
 /// repo-root-relative path. Carried over a one-shot channel from the worker `re_root` spawns to
 /// the `poll` that applies them.
 type StatusResult = (BTreeMap<PathBuf, Status>, BTreeMap<PathBuf, Status>);
 
-/// The single open modal overlay, or [`Modal::None`] when the columns have focus. Collapses what
-/// were four parallel `Option<…State>` fields (picker / finder / prompt / help) into one value, so
-/// "at most one modal is open at a time" is enforced by the type rather than by hand: opening any
-/// modal (`self.modal = Modal::Picker(…)`) implicitly closes whatever else was open, and a single
-/// `Modal::None` closes the lot (the old per-field teardown in [`re_root`](Controller::re_root)).
+/// The single open modal overlay, or [`Modal::None`] when the columns have focus. Collapses the
+/// former parallel `Option<…State>` fields into one value, so "at most one modal is open at a time"
+/// is enforced by the type rather than by hand: opening any modal (`self.modal =
+/// Modal::Picker(…)`) implicitly closes whatever else was open, and a single `Modal::None` closes
+/// the lot (the old per-field teardown in [`re_root`](Controller::re_root)).
 /// The variants:
 /// - `Picker` — the worktree picker (AC-1); a re-root closes it (its candidate list is old-root).
 /// - `Finder` — the go-to-file finder (AC-1), opened by `f`; closed by confirm/cancel/re-root.
+/// - `ProjectSearch` — the project-content finder, opened by `s`; captures the current ignored-file
+///   scope and owns raw query/navigation keys until confirm/cancel/re-root.
 /// - `Prompt` — the in-file-nav bottom prompt (go-to-line / search). While open the run loop routes
 ///   raw keys to `handle_prompt_key` and the mouse is inert, so the selection can't change beneath it.
 /// - `Help` — the help overlay (AC-1, AC-6), opened by `?`; dismissed by Esc/`q`. While open,
@@ -615,6 +636,7 @@ enum Modal {
     None,
     Picker(PickerState),
     Finder(FinderState),
+    ProjectSearch(ProjectSearchState),
     Prompt(PromptState),
     Help(HelpState),
     LineSelect(PreviewSelection),
@@ -679,6 +701,18 @@ impl Modal {
     fn finder_mut(&mut self) -> Option<&mut FinderState> {
         match self {
             Modal::Finder(s) => Some(s),
+            _ => None,
+        }
+    }
+    fn project_search(&self) -> Option<&ProjectSearchState> {
+        match self {
+            Modal::ProjectSearch(s) => Some(s),
+            _ => None,
+        }
+    }
+    fn project_search_mut(&mut self) -> Option<&mut ProjectSearchState> {
+        match self {
+            Modal::ProjectSearch(s) => Some(s),
             _ => None,
         }
     }
@@ -877,6 +911,14 @@ pub struct Controller {
     job_tx: mpsc::Sender<RenderJob>,
     result_rx: mpsc::Receiver<RenderCompletion>,
     latest_seq: u64,
+    /// Dedicated project-content search worker. Its sequence is bumped synchronously on every query
+    /// edit, open, close, and re-root, so [`poll`](Self::poll) can discard results for a superseded
+    /// query or closed modal. `project_search_latest` mirrors the sequence for the worker, whose
+    /// running scan polls it between files and stops as soon as it is superseded.
+    project_search_tx: mpsc::Sender<ProjectSearchJob>,
+    project_search_rx: mpsc::Receiver<ProjectSearchCompletion>,
+    project_search_seq: u64,
+    project_search_latest: Arc<AtomicU64>,
     /// The `seq` of an in-flight markdown re-render triggered by a content-pane *resize*
     /// ([`rerender_markdown_for_width`]), as opposed to a selection change. When [`poll`] applies a
     /// result whose seq matches, it preserves the current scroll and recomputes an active search
@@ -1047,6 +1089,11 @@ impl Controller {
         // channel (AC-23). The worker exits when the job sender (held by the controller) is
         // dropped — which is also how a re-root retires the old worker.
         let (job_tx, result_rx) = Self::spawn_worker(Arc::clone(&git), content);
+        let project_search_latest = Arc::new(AtomicU64::new(0));
+        let (project_search_tx, project_search_rx) = Self::spawn_project_search_worker(
+            Arc::new(crate::repo_search::search_with),
+            Arc::clone(&project_search_latest),
+        );
 
         let mut ctrl = Controller {
             tree: TreeModel::new(root.clone()),
@@ -1093,6 +1140,10 @@ impl Controller {
             job_tx,
             result_rx,
             latest_seq: 0,
+            project_search_tx,
+            project_search_rx,
+            project_search_seq: 0,
+            project_search_latest,
             reflow_seq: None,
             geom: PaneGeometry::default(),
             last_click: None,
@@ -1189,6 +1240,62 @@ impl Controller {
                 });
                 if result_tx.send(RenderCompletion { job, result }).is_err() {
                     break; // controller gone
+                }
+            }
+        });
+        (job_tx, result_rx)
+    }
+
+    /// Spawn the single long-lived project-content search worker. It collapses queued edits to the
+    /// newest query before scanning and cancels a running scan once `latest` moves past its seq,
+    /// streaming partial hits while it runs. It never filters what it sends by seq: the controller's
+    /// `poll` guard alone decides which completion is current.
+    fn spawn_project_search_worker(
+        searcher: crate::repo_search::Searcher,
+        latest: Arc<AtomicU64>,
+    ) -> (
+        mpsc::Sender<ProjectSearchJob>,
+        mpsc::Receiver<ProjectSearchCompletion>,
+    ) {
+        let (job_tx, job_rx) = mpsc::channel::<ProjectSearchJob>();
+        let (result_tx, result_rx) = mpsc::channel::<ProjectSearchCompletion>();
+        std::thread::spawn(move || {
+            while let Ok(mut job) = job_rx.recv() {
+                while let Ok(newer) = job_rx.try_recv() {
+                    job = newer;
+                }
+                let seq = job.seq;
+                let cancelled = || latest.load(Ordering::Relaxed) != seq;
+                if cancelled() {
+                    continue;
+                }
+                let partial = |output: &crate::repo_search::SearchOutput| {
+                    let _ = result_tx.send(ProjectSearchCompletion {
+                        seq,
+                        output: output.clone(),
+                        done: false,
+                    });
+                };
+                let control = crate::repo_search::SearchControl {
+                    cancelled: &cancelled,
+                    partial: &partial,
+                };
+                let output = match std::panic::catch_unwind(AssertUnwindSafe(|| {
+                    searcher(&job.request, &control)
+                })) {
+                    Ok(Some(output)) => output,
+                    Ok(None) => continue, // cancelled: a newer job (or a close) superseded it
+                    Err(_) => crate::repo_search::SearchOutput::default(),
+                };
+                if result_tx
+                    .send(ProjectSearchCompletion {
+                        seq,
+                        output,
+                        done: true,
+                    })
+                    .is_err()
+                {
+                    break;
                 }
             }
         });
@@ -1315,6 +1422,7 @@ impl Controller {
         // future re-root trigger.
         self.modal = Modal::None;
         self.last_click = None;
+        self.bump_project_search(); // cancel a scan of the old root
 
         // PREFERENCES ARE CARRIED (AC-12) — deliberately NOT reset: show_ignored, hide_hidden,
         // changed_only, status_mode, changed_file_view, split_pct, tree_position, tree_max_cols,
@@ -1865,6 +1973,9 @@ impl Controller {
         if let Some(finder) = self.modal.finder_mut() {
             finder.clamp_hscroll(finder_max_hscroll);
         }
+        if let Some(search) = self.modal.project_search_mut() {
+            search.clamp_hscroll(finder_max_hscroll);
+        }
         if let Some(picker) = self.modal.picker_mut() {
             picker.clamp_hscroll(picker_max_hscroll);
         }
@@ -2028,7 +2139,7 @@ impl Controller {
             zoomed: self.zoomed,
             remote_notice_status: self.remote_notice_status(),
             picker: self.picker_view(),
-            finder: self.finder_view(),
+            finder: self.project_search_view().or_else(|| self.finder_view()),
             annotation_count: self.annotations.len(),
             annotation_overview: self.annotation_overview_view(),
             annotation_editor: self.annotation_editor_view(),
@@ -2173,6 +2284,10 @@ impl Controller {
         if self.modal.finder().is_some() {
             return Effects::noop();
         }
+        // Project-content search likewise owns raw keys until it is confirmed or cancelled.
+        if self.modal.project_search().is_some() {
+            return Effects::noop();
+        }
         // A prompt is modal too: the run loop routes raw keys to handle_prompt_key while it is open, so
         // handle() should not be reached. Guard structurally — symmetric with the finder guard.
         if self.modal.prompt().is_some() {
@@ -2232,6 +2347,7 @@ impl Controller {
             Intent::DismissUpdate => self.dismiss_update(),
             Intent::SwitchWorktree => self.open_worktree_picker(),
             Intent::OpenFinder => self.open_finder(),
+            Intent::OpenProjectSearch => self.open_project_search(),
             Intent::OpenGoToLine => self.open_go_to_line(),
             Intent::OpenSearch => self.open_search(),
             Intent::NextMatch => self.next_match(),
@@ -3746,6 +3862,22 @@ impl Controller {
                 }
             }
             // else: a superseded selection's render — drop it.
+        }
+        // Apply only the newest project-search completion while that exact modal instance remains
+        // open. Query edits and close/reopen both bump the sequence synchronously, so an older scan
+        // can never overwrite newer rows or resurrect a closed search.
+        let mut confirm_project_search = false;
+        while let Ok(completion) = self.project_search_rx.try_recv() {
+            if completion.seq == self.project_search_seq
+                && let Some(state) = self.modal.project_search_mut()
+            {
+                state.apply(completion.output, completion.done);
+                confirm_project_search |= state.take_pending_confirm() == Some(true);
+                applied = true;
+            }
+        }
+        if confirm_project_search {
+            self.confirm_project_search();
         }
         // A re-root's off-thread status/changed-set (one-shot, AC-17): apply the new root's
         // markers and the carried changed-only filter against the freshly-arrived changed-set,

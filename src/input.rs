@@ -455,6 +455,13 @@ pub(crate) const REGISTRY: &[Binding] = &[
         category: "Search & jump",
     },
     Binding {
+        intent: Intent::OpenProjectSearch,
+        name: "project_search",
+        default_keys: &[KeyCode::Char('s')],
+        description: "Search file contents across the current project scope.",
+        category: "Search & jump",
+    },
+    Binding {
         intent: Intent::OpenGoToLine,
         name: "open_go_to_line",
         default_keys: &[KeyCode::Char(':')],
@@ -835,6 +842,7 @@ mod tests {
         (KeyCode::Char('v'), Intent::CycleView),
         (KeyCode::Char('e'), Intent::OpenInEditor),
         (KeyCode::Char('f'), Intent::OpenFinder),
+        (KeyCode::Char('s'), Intent::OpenProjectSearch),
         (KeyCode::Char(':'), Intent::OpenGoToLine),
         (KeyCode::Char('/'), Intent::OpenSearch),
         (KeyCode::Char('n'), Intent::NextMatch),

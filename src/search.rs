@@ -9,9 +9,8 @@
 //! `Match::start` and `Match::end` are **byte offsets** into the original (un-folded) line
 //! string such that `&lines[m.line][m.start..m.end]` is a valid UTF-8 slice equal to the
 //! matched text. ASCII case folding is used for the case-insensitive path so byte offsets
-//! stay aligned with the original line; non-ASCII uppercase letters trigger the case-sensitive
-//! path (the check is `is_ascii_uppercase`), so non-ASCII uppercase queries are matched
-//! case-sensitively (byte offsets remain valid into the original line).
+//! stay aligned with the original line. Non-ASCII letters neither trigger case-sensitive mode nor
+//! participate in the ASCII fold, so they compare exactly while byte offsets remain valid.
 
 /// A single non-overlapping substring match.
 ///
@@ -22,6 +21,18 @@ pub struct Match {
     pub line: usize,
     pub start: usize,
     pub end: usize,
+}
+
+/// The smartcase needle for `query`: the needle to search for and whether the search is
+/// case-sensitive. A query with any ASCII uppercase letter is case-sensitive and searched as-is;
+/// otherwise it is ASCII-folded and must be matched against an ASCII-folded haystack. Shared by
+/// [`find_matches`] and project-content search so both apply one rule.
+pub fn smartcase_needle(query: &str) -> (String, bool) {
+    if query.chars().any(|c| c.is_ascii_uppercase()) {
+        (query.to_string(), true)
+    } else {
+        (query.to_ascii_lowercase(), false)
+    }
 }
 
 /// Find all non-overlapping occurrences of `query` within `lines`.
@@ -36,15 +47,9 @@ pub fn find_matches(query: &str, lines: &[String]) -> Vec<Match> {
         return Vec::new();
     }
 
-    // Determine case-sensitivity once for the whole call.
-    let case_sensitive = query.chars().any(|c| c.is_ascii_uppercase());
-    // In the case-insensitive path fold the needle once; ASCII fold is byte-length-preserving,
+    // Determine case-sensitivity once for the whole call. ASCII fold is byte-length-preserving,
     // so match_indices offsets into the folded line stay valid into the original line.
-    let needle = if case_sensitive {
-        query.to_string()
-    } else {
-        query.to_ascii_lowercase()
-    };
+    let (needle, case_sensitive) = smartcase_needle(query);
 
     let mut matches = Vec::new();
     for (line_idx, line) in lines.iter().enumerate() {

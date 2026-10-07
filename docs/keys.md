@@ -29,6 +29,7 @@ is additive and on by default.
 | `O` (Shift+`o`) | **Open with default app**: hand the selected file or directory to the OS default application (e.g. an image opens in the system viewer). Read-only hand-off; non-blocking (the viewer keeps running) |
 | `R` (Shift+`r`) | **Reveal in file manager**: open the OS file manager (Finder / Explorer / a Linux file manager) with the selected entry highlighted where supported, so you can drag it out (e.g. into Slack). Read-only hand-off |
 | `f` | **Go to file**: open a fuzzy finder over every file in the tree; type to filter, `↑` / `↓` move, `Enter` opens the selected file and focuses its active preview, `Esc` cancels (`←` / `→` scroll long paths) |
+| `s` | **Search project contents**: literal smartcase search across the `i` scope in effect when the popup opens; results show `path:line` plus an excerpt. `↑` / `↓` move, `Enter` opens source view at that line, `Esc` cancels, and `←` / `→` scroll long rows. Dotfiles are included independently of `.`, while `.git/` is always excluded |
 | `:` | **Go to line**: open a prompt and jump the content pane to a source line by number (`Enter` jumps, `Esc` cancels; out-of-range clamps to the last line). Works in any view; in a rendered-markdown or diff view, confirming switches to the line-numbered content view and jumps there |
 | `/` | **Search in file**: open a prompt and highlight every match in the content pane as you type; `Enter` commits the search (highlights persist), `Esc` clears it and restores the scroll. Smartcase (a lowercase query is case-insensitive; a capital makes it case-sensitive). Works in any view |
 | `n` / `N` (Shift+`n`) | After a committed search, jump to the **next** / **previous** match and scroll it into view, wrapping at the ends with a notice |
@@ -51,9 +52,10 @@ is additive and on by default.
 | `q` / `Esc` | Back out of zoom if zoomed; otherwise close the viewer and return to the prior pane. With annotations held, a confirm appears first (`y` copies them and quits, `q` quits and discards, `Esc` returns to the viewer): they are session-only, so quitting destroys them. Skip it with `confirm_discard = false` |
 
 These are the **default global** keys. Remap them with a `[keys]` table in the
-[config file](configuration.md#keybindings). Keys handled inside line-select mode, the annotation
-editor/overview, and other modals are fixed and not remappable; remapping global `a` or `A` does not
-change a modal's local controls.
+[config file](configuration.md#keybindings). The `f` and `s` keys that open their popups are
+remappable; once either popup is open, its query, arrow, `Enter`, and `Esc` controls are fixed. Keys
+handled inside line-select mode, the annotation editor/overview, and other modals are likewise fixed
+and not remappable; remapping global `a` or `A` does not change a modal's local controls.
 
 `Tab` to the content pane, then the arrow keys (or `h`/`j`/`k`/`l`) scroll it in all four
 directions; `Tab` back to the tree to move between files. Long lines wrap in prose (markdown /

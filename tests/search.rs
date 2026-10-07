@@ -1,4 +1,4 @@
-use herdr_file_viewer::search::{Match, find_matches};
+use herdr_file_viewer::search::{Match, find_matches, smartcase_needle};
 
 // ── AC-9: every occurrence found, multiple per line, document order ──────────
 
@@ -141,6 +141,14 @@ fn all_uppercase_query_matches_case_sensitively() {
         }],
         "query 'HELLO' (all-uppercase) should match only 'HELLO'"
     );
+}
+
+#[test]
+fn smartcase_needle_folds_only_all_lowercase_queries() {
+    assert_eq!(smartcase_needle("needle"), ("needle".to_string(), false));
+    assert_eq!(smartcase_needle("Needle"), ("Needle".to_string(), true));
+    // Non-ASCII letters neither trigger case-sensitivity nor fold.
+    assert_eq!(smartcase_needle("É"), ("É".to_string(), false));
 }
 
 // ── AC-18: empty query and no-match → empty Vec ───────────────────────────────

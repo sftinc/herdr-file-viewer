@@ -13,6 +13,7 @@ impl Controller {
     pub(super) fn finder_view(&self) -> Option<FinderView> {
         let f = self.modal.finder()?;
         Some(FinderView {
+            kind: FinderKind::File,
             query: f.query().to_string(),
             matches: f.snapshot(),
             cursor: f.cursor(),

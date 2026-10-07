@@ -23,6 +23,7 @@ impl Controller {
         // - None: no modal → the two-column mouse handler below.
         match self.modal {
             Modal::Picker(_)
+            | Modal::ProjectSearch(_)
             | Modal::Prompt(_)
             | Modal::Annotations(_)
             | Modal::AnnotationEditor(_)

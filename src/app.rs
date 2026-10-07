@@ -319,6 +319,21 @@ fn event_loop(terminal: &mut DefaultTerminal, controller: &mut Controller) -> io
         };
         if event::poll(tick)? {
             match event::read()? {
+                // Project-content search owns all raw keys while open: printable characters edit the
+                // query instead of firing global actions, and Enter/Esc confirm or cancel.
+                Event::Key(key)
+                    if key.kind == KeyEventKind::Press && controller.project_search_open() =>
+                {
+                    let fx = controller.handle_project_search_key(key);
+                    if fx.clear {
+                        let _ = terminal.clear();
+                        dirty = true;
+                    }
+                    if fx.quit {
+                        return Ok(());
+                    }
+                    dirty |= fx.redraw;
+                }
                 // While the finder overlay is open, every key press is routed directly to
                 // `handle_finder_key` so printable keys (including `j`, `w`, `q`, …) edit the
                 // query instead of firing viewer intents (AC-7). The arm is gated on
