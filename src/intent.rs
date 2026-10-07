@@ -24,6 +24,8 @@ pub enum Intent {
     Expand,
     /// Collapse the selected directory (AC-3).
     Collapse,
+    /// Close every open directory in the tree, at every depth. Read-only.
+    CloseAll,
     /// Activate the selected node (Enter / double-click): expand/collapse a directory, or open
     /// a file in zoom mode (content pane full-screen). Never an edit — the editor hand-off
     /// stays on [`Intent::OpenInEditor`] (AC-N3).
@@ -172,13 +174,14 @@ pub enum Intent {
 impl Intent {
     /// Every intent variant — lets the dispatcher and tests enumerate the closed set so
     /// keyboard-completeness (AC-18) and the no-file/git-mutation invariant (AC-N3) stay checkable.
-    pub const ALL: [Intent; 44] = [
+    pub const ALL: [Intent; 45] = [
         Intent::NavUp,
         Intent::NavDown,
         Intent::PageUp,
         Intent::PageDown,
         Intent::Expand,
         Intent::Collapse,
+        Intent::CloseAll,
         Intent::Activate,
         Intent::OpenFullscreen,
         Intent::ToggleIgnore,
@@ -239,6 +242,7 @@ mod tests {
                 | Intent::PageDown
                 | Intent::Expand
                 | Intent::Collapse
+                | Intent::CloseAll
                 | Intent::Activate
                 | Intent::OpenFullscreen
                 | Intent::ToggleIgnore
@@ -348,11 +352,11 @@ mod tests {
     }
 
     #[test]
-    fn all_length_is_44() {
+    fn all_length_is_45() {
         assert_eq!(
             Intent::ALL.len(),
-            44,
-            "Intent::ALL must have exactly 44 variants"
+            45,
+            "Intent::ALL must have exactly 45 variants"
         );
     }
 

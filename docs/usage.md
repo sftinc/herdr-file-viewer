@@ -39,6 +39,7 @@ Move the cursor with `↑`/`↓` (or `k`/`j`), expand/collapse a directory with 
 the nearest visible parent, so repeated presses climb the tree; it stops at a root child. This also
 skips folded segments when [`compact_dirs`](configuration.md) is on. Changed-only (`c`) and status
 (`d`) views keep their existing collapse behavior because their directory rows are always expanded.
+Press `x` to close every open folder at once; the cursor moves to the top-level folder that held it.
 The tree scrolls to keep the selection in view, and sideways for long or deeply-nested names —
 reachable by keyboard with `H` / `L` when the tree is focused. A scrollbar appears whenever there's
 more than fits. Narrow or widen the tree column with `<` / `>`, or drag the divider; the starting

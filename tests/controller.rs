@@ -11519,3 +11519,46 @@ fn controller_exposes_update_status_with_its_default_resolved_labels() {
         "status never presents an install command or automatic action: {line}"
     );
 }
+
+#[test]
+fn close_all_closes_every_folder_and_selects_the_top_level_ancestor() {
+    let dir = TempDir::new();
+    std::fs::create_dir_all(dir.path().join("src/inner")).unwrap();
+    std::fs::write(dir.path().join("src/inner/deep.rs"), "x\n").unwrap();
+    std::fs::write(dir.path().join("z.txt"), "z\n").unwrap();
+    let (mut ctrl, _, _) = controller(dir.path(), false, StubGit::default(), false);
+    ctrl.handle(Intent::Expand); // the cursor starts on `src`
+    ctrl.handle(Intent::NavDown);
+    ctrl.handle(Intent::Expand);
+    ctrl.handle(Intent::NavDown);
+    assert_eq!(visible_names(&ctrl), ["src", "inner", "deep.rs", "z.txt"]);
+
+    let fx = ctrl.handle(Intent::CloseAll);
+
+    assert!(fx.redraw);
+    assert_eq!(visible_names(&ctrl), ["src", "z.txt"]);
+    assert_eq!(
+        ctrl.tree().selected().map(|n| n.path),
+        Some(dir.path().join("src"))
+    );
+}
+
+#[test]
+fn close_all_is_a_noop_in_changed_only_mode() {
+    // The changed-only tree always shows every folder open, so there is nothing to close.
+    let dir = TempDir::new();
+    std::fs::create_dir_all(dir.path().join("src")).unwrap();
+    std::fs::write(dir.path().join("src/x.rs"), "x\n").unwrap();
+    let git = StubGit {
+        changed: BTreeMap::from([(PathBuf::from("src/x.rs"), Status::Modified)]),
+        ..Default::default()
+    };
+    let (mut ctrl, _, _) = controller(dir.path(), true, git, false);
+    ctrl.handle(Intent::ToggleChangedOnly);
+    assert_eq!(visible_names(&ctrl), ["src", "x.rs"]);
+
+    let fx = ctrl.handle(Intent::CloseAll);
+
+    assert!(!fx.redraw);
+    assert_eq!(visible_names(&ctrl), ["src", "x.rs"]);
+}
