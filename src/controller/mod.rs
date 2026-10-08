@@ -2749,11 +2749,13 @@ impl Controller {
         Effects::noop()
     }
 
-    /// Close every open folder. Focus-blind, since it only moves the tree. Inert in changed-only
-    /// and status mode, whose trees always show every folder open. Re-renders when the selection
-    /// moves up to its top-level ancestor, like walking up with [`Self::collapse`].
+    /// Close every open folder. Tree focus only, like `H`: from the content pane (zoomed or not)
+    /// or the pinned preview it is inert, so `x` never swaps the file being read for its
+    /// collapsed ancestor. Inert in changed-only and status mode, whose trees always show every
+    /// folder open. Re-renders when the selection moves up to its top-level ancestor, like
+    /// walking up with [`Self::collapse`].
     fn close_all(&mut self) -> Effects {
-        if self.changed_only || self.status_mode {
+        if self.focus != Focus::Tree || self.changed_only || self.status_mode {
             return Effects::noop();
         }
         let before = self.tree.selected().map(|n| n.path);
